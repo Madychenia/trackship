@@ -64,24 +64,29 @@ df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
 changes_made = False
 
-for index, row in df.iterrows():
-    old_status = str(row['status'])
-    new_status = old_status
-    
-    if row['carrier'] == "Мист Экспресс":
-        new_status = get_meest_status(row['track_number'])
-    elif row['carrier'] == "Новая почта":
-        new_status = get_np_status(row['track_number'])
-    
-    if new_status != old_status:
-        df.at[index, 'status'] = new_status
-        df.at[index, 'last_check'] = pd.Timestamp.now().strftime("%d.%m %H:%M")
-        send_telegram(f"🔔 Обновление трека {row['track_number']} ({row['carrier']}):\n{new_status}")
-        changes_made = True
+# ЗАМЕНИ ЦИКЛ В КОНЦЕ checker.py НА ЭТОТ:
 
-if changes_made:
-    csv_string = df.to_csv(index=False)
-    repo.update_file("data.csv", "Auto-update statuses", csv_string, file_content.sha)
+for index, row in df.iterrows():
+    track = row['track_number']
+    carrier = row['carrier']
+    
+    if carrier == "Мист Экспресс":
+        new_status = get_meest_status(track)
+    elif carrier == "Новая почта":
+        new_status = get_np_status(track)
+    else:
+        new_status = "Неизвестный перевозчик"
+    
+    # ПРИНУДИТЕЛЬНО ПИШЕМ В ТЕЛЕГРАМ ДЛЯ ТЕСТА
+    send_telegram(f"🔍 Проверка {track}:\nРезультат: {new_status}")
+    
+    # Обновляем CSV
+    df.at[index, 'status'] = new_status
+    df.at[index, 'last_check'] = pd.Timestamp.now().strftime("%d.%m %H:%M")
+
+# Сохраняем результат
+csv_string = df.to_csv(index=False)
+repo.update_file("data.csv", "Force update for debug", csv_string, file_content.sha)
 
 
 # Добавь это в самый конец файла checker.py
