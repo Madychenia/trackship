@@ -8,57 +8,49 @@ import io
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
-# Защищенная загрузка секретов
-try:
-    GITHUB_TOKEN = st.secrets["G_TOKEN"]
-    REPO_NAME = st.secrets["REPO_NAME"]
-    g = Github(GITHUB_TOKEN)
-    repo = g.get_repo(REPO_NAME)
-    secrets_ok = True
-except Exception:
-    st.error("🚨 Ошибка: Не найдены секреты G_TOKEN или REPO_NAME в настройках Streamlit!")
-    secrets_ok = False
+# Секреты (теперь строго G_TOKEN)
+G_TOKEN = st.secrets["G_TOKEN"]
+REPO_NAME = st.secrets["REPO_NAME"]
 
-emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
-tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
+g = Github(G_TOKEN)
+repo = g.get_repo(REPO_NAME)
 
 def load_data():
     file_content = repo.get_contents("data.csv")
-    decoded = file_content.decoded_content.decode('utf-8')
-    df = pd.read_csv(io.StringIO(decoded))
-    # Проверка колонок
-    if 'track_number' not in df.columns:
-        df.columns = tech_cols
+    df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
     return df, file_content.sha
 
 def save_data(df, sha, msg="Update"):
     repo.update_file("data.csv", msg, df.to_csv(index=False), sha)
 
-st.title("📦 TrackShip")
+st.title("📦 Таблица заказов")
 
-if secrets_ok:
-    try:
-        df, file_sha = load_data()
-        
-        if st.button("🔄 Запустить обновление (GitHub Actions)"):
-            repo.get_workflow("main.yml").create_dispatch(repo.default_branch)
-            st.success("Робот запущен! Обнови страницу через минуту.")
+# --- ИНТЕРФЕЙС СВЕРХУ ---
+with st.expander("➕ Добавить новую посылку", expanded=False):
+    with st.form("add_form", clear_on_submit=True):
+        carrier = st.selectbox("Оператор", ["Мист Экспресс", "Новая почта"])
+        track = st.text_input("Трек-номер")
+        comment = st.text_input("Комментарий")
+        if st.form_submit_button("Сохранить"):
+            df, file_sha = load_data()
+            now = datetime.datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+            new_row = pd.DataFrame([[track.strip(), carrier, comment.strip() or "-", "Ожидает", now, now]], 
+                                   columns=['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time'])
+            df = pd.concat([df, new_row], ignore_index=True)
+            save_data(df, file_sha, f"Add {track}")
+            st.rerun()
 
-        # Отображение таблицы без кликабельности
-        display_df = df.copy()
-        display_df.columns = [next((k for k, v in emergency_map.items() if v == col), col) for col in df.columns]
-        st.table(display_df)
+if st.button("🔄 Обновить статусы"):
+    repo.get_workflow("main.yml").create_dispatch(repo.default_branch)
+    st.info("Запрос отправлен в GitHub Actions...")
 
-        with st.expander("➕ Добавить посылку"):
-            with st.form("add_form", clear_on_submit=True):
-                carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
-                track = st.text_input("Трек-номер")
-                comment = st.text_input("Комментарий")
-                if st.form_submit_button("Сохранить"):
-                    now = datetime.datetime.now(kiev_tz).strftime("%d.%m %H:%M")
-                    new_row = pd.DataFrame([[track.strip(), carrier, comment.strip() or "-", "Ожидает обновления", now, now]], columns=tech_cols)
-                    df = pd.concat([df, new_row], ignore_index=True)
-                    save_data(df, file_sha, f"Add {track}")
-                    st.rerun()
-    except Exception as e:
-        st.error(f"Ошибка загрузки данных: {e}")
+# --- ТАБЛИЦА (БЕЗ ИНДЕКСОВ) ---
+df, file_sha = load_data()
+# Переименовываем для красоты
+disp_df = df.rename(columns={
+    'track_number': 'Трек', 'carrier': 'Оператор', 'comment': 'Коммент', 
+    'status': 'Статус', 'last_change': 'Ласт', 'check_time': 'Чек'
+})
+
+# Скрываем индекс (колонку 0, 1, 2)
+st.dataframe(disp_df, use_container_width=True, hide_index=True)
