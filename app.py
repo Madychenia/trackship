@@ -9,6 +9,26 @@ import io
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
+# --- БЛОК АВТОРИЗАЦИИ ---
+def check_password():
+    """Возвращает True, если пароль верный."""
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Поле для ввода пароля
+    st.text_input("🔐 Введите пароль для доступа к TrackShip", type="password", key="pwd_input")
+    
+    if st.session_state.pwd_input == st.secrets["APP_PASSWORD"]:
+        st.session_state.password_correct = True
+        st.rerun() # Перезагружаем страницу уже авторизованными
+    elif st.session_state.pwd_input:
+        st.error("😕 Неверный пароль")
+    return False
+
+# Если пароль не введен или неверный — останавливаем загрузку страницы здесь
+if not check_password():
+    st.stop()
+    
 # Секреты
 G_TOKEN = st.secrets["G_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
