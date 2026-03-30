@@ -5,10 +5,7 @@ from datetime import datetime
 import pytz
 import io
 
-# Настройка страницы
 st.set_page_config(page_title="TrackShip", layout="wide")
-
-# Установка часового пояса
 kiev_tz = pytz.timezone('Europe/Kiev')
 
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -44,36 +41,29 @@ except:
 
 if st.button("🔄 Обновить сейчас"):
     if df.empty:
-        st.warning("Список треков пуст, нечего обновлять.")
+        st.warning("Список треков пуст.")
     else:
         try:
             trigger_action()
-            st.info("Запрос отправлен в GitHub Actions. Подожди 1-2 минуты.")
+            st.info("Запрос отправлен. Подождите 1-2 минуты.")
         except Exception as e:
             st.error(f"Ошибка запуска: {e}")
-            
+
 col_add, col_del = st.columns(2)
 with col_add:
     with st.expander("➕ Добавить новую посылку"):
         with st.form("add_form", clear_on_submit=True):
-            carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
+            # Важно: названия должны быть один в один как в checker.py
+            carrier = st.selectbox("Логист", ["Новая почта", "Мист Экспресс"])
             track = st.text_input("Трек-номер")
-            comment = st.text_input("Что внутри? (Комментарий)")
+            comment = st.text_input("Комментарий")
             if st.form_submit_button("Сохранить"):
                 if track:
-                    # Используем КИЕВСКОЕ время
                     now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
-                    new_row = pd.DataFrame([{
-                        "track_number": track.strip(), 
-                        "carrier": carrier, 
-                        "comment": comment.strip() or "-", 
-                        "status": "Ожидает регистрации", 
-                        "last_change": now, 
-                        "check_time": now
-                    }])
+                    new_row = pd.DataFrame([{"track_number": track.strip(), "carrier": carrier, "comment": comment.strip() or "-", "status": "Ожидает регистрации", "last_change": now, "check_time": now}])
                     df = pd.concat([df, new_row], ignore_index=True)
                     save_data(df, file_sha, f"Add: {track}")
-                    st.success("Добавлено!")
+                    st.success("Готово!")
                     st.rerun()
 
 with col_del:
@@ -84,7 +74,7 @@ with col_del:
                 def format_func(idx):
                     row = df.loc[idx]
                     return f"📝 {row['comment']} [{row['track_number']}]" if row['comment'] != "-" else f"📦 {row['track_number']}"
-                selected_idx = st.selectbox("Выберите для удаления", options, format_func=format_func)
+                selected_idx = st.selectbox("Что удаляем?", options, format_func=format_func)
                 if st.form_submit_button("Удалить"):
                     track_val = df.loc[selected_idx, 'track_number']
                     df = df.drop(selected_idx)
@@ -93,6 +83,6 @@ with col_del:
                     st.rerun()
 
 if not df.empty:
-    st.write("### Активные отслеживания")
+    st.write("### Таблица заказов")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
     st.dataframe(display_df, use_container_width=True, hide_index=True)
