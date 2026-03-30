@@ -9,7 +9,7 @@ import io
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
-# ФИКСИРУЕМ G_TOKEN
+# Секреты
 G_TOKEN = st.secrets["G_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
 
@@ -30,7 +30,6 @@ def save_data(df, sha, msg="Update"):
     repo.update_file("data.csv", msg, df.to_csv(index=False), sha)
 
 def trigger_action():
-    # Файл должен называться check.yml
     workflow = repo.get_workflow("check.yml") 
     workflow.create_dispatch(repo.default_branch)
 
@@ -51,7 +50,7 @@ if st.button("🔄 Обновить сейчас"):
         except Exception as e:
             st.error(f"Ошибка запуска: {e}")
 
-# ТВОИ ДВЕ КОЛОНКИ
+# Две колонки
 col_add, col_del = st.columns(2)
 with col_add:
     with st.expander("➕ Добавить новую посылку"):
@@ -92,12 +91,7 @@ if not df.empty:
     st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
     
-    # 100% блокировка кликов мышкой по таблице через CSS
+    # CSS-хак для полного отключения кликабельности и выделения ячеек
     st.markdown('<style>[data-testid="stDataFrame"] {pointer-events: none;}</style>', unsafe_allow_html=True)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-    display_df, 
-    use_container_width=True, 
-    hide_index=True,
-    column_config={col: st.column_config.Column(disabled=True) for col in display_df.columns}
-)
