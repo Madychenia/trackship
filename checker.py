@@ -5,6 +5,7 @@ import io
 import os
 from datetime import datetime
 import time
+import xml.etree.ElementTree as ET
 
 # Секреты
 GITHUB_TOKEN = os.getenv("G_TOKEN")
@@ -21,40 +22,46 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        session = requests.Session()
-        # Имитируем реальный визит
+        # Тот самый URL из твоего cURL
+        # Параметр chk может меняться, но пока используем этот статично
+        chk = "8645141e4284290f547d92f1fa241731"
+        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
+        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Referer': 'https://ua.meest.com/'
+            'accept': 'application/xml, text/xml, */*; q=0.01',
+            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'origin': 'https://t.meest-group.com',
+            'referer': 'https://t.meest-group.com/n/',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest'
         }
         
-        # Запрос к API
-        api_url = f"https://t.meest-group.com/api/v1/track/{track}"
-        r = session.get(api_url, headers=headers, timeout=15)
+        # Meest требует POST с пустым телом (content-length: 0)
+        r = requests.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
-            data = r.json()
-            events = data.get('events', [])
+            # Парсим XML
+            root = ET.fromstring(r.text)
+            items = root.findall(".//items")
             
-            if events and len(events) > 0:
-                # Берем самый первый элемент (он последний по времени)
-                last_event = events[0]
-                status_text = last_event.get('status', 'Обработка')
-                city = last_event.get('city', '')
-                # Формируем красивую строку статуса
-                return f"{status_text} ({city})" if city else status_text
+            if items:
+                # В твоем XML самое последнее событие — в последнем блоке <items>
+                last_item = items[-1]
+                status_text = last_item.find("ActionMessages").text
+                city = last_item.find("City").text
+                
+                if status_text:
+                    return f"{status_text} ({city})" if city else status_text
             
-            # Если истории нет, берем текущий статус из конфига
-            return data.get('config', {}).get('status', 'Информация уточняется')
-        
+            return "Статус уточняется"
+            
         return f"Meest: Код {r.status_code}"
-    except Exception:
-        return "Ошибка получения данных"
+    except Exception as e:
+        return f"Ошибка обработки XML"
 
 # --- ОСНОВНОЙ ЦИКЛ ---
 try:
-    send_telegram("🤖 Робот запущен, проверяю треки...")
+    send_telegram("🤖 Робот запущен, проверяю треки (XML Mode)...")
     
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(REPO_NAME)
@@ -68,16 +75,16 @@ try:
             
             if carrier == "Мист Экспресс":
                 new_status = get_meest_status(track)
-                send_telegram(f"🔔 Трек {track} (Мист):\n{new_status}")
+                send_telegram(f"📦 Трек: {track}\n📍 Статус: {new_status}")
                 
                 df.at[index, 'status'] = new_status
                 df.at[index, 'last_check'] = datetime.now().strftime("%d.%m %H:%M")
-                time.sleep(1) # Защита от бана
+                time.sleep(2)
 
-        # Сохранение
+        # Сохранение обновленной таблицы
         new_csv = df.to_csv(index=False)
-        repo.update_file("data.csv", "Auto-update statuses", new_csv, file_content.sha)
-        send_telegram("✅ Проверка завершена.")
+        repo.update_file("data.csv", "Update Meest via XML Parser", new_csv, file_content.sha)
+        send_telegram("✅ Все данные обновлены.")
 
 except Exception as e:
-    send_telegram(f"💥 Ошибка: {str(e)}")
+    send_telegram(f"💥 Сбой: {str(e)}")
