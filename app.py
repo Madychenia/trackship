@@ -1,15 +1,15 @@
-import streamlit as st # (только для app.py)
+import streamlit as st
 import pandas as pd
 from github import Github
-from datetime import datetime  # ВАЖНО: именно так!
+from datetime import datetime
 import pytz
 import io
-import os # (только для checker.py)
+
+# Настройка страницы
+st.set_page_config(page_title="TrackShip", layout="wide")
 
 # Установка часового пояса
 kiev_tz = pytz.timezone('Europe/Kiev')
-
-st.set_page_config(page_title="TrackShip", layout="wide")
 
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
@@ -32,8 +32,7 @@ def save_data(df, sha, msg="Update"):
     repo.update_file("data.csv", msg, df.to_csv(index=False), sha)
 
 def trigger_action():
-    # Запуск GitHub Action вручную через API
-    workflow = repo.get_workflow("check.yml") # Убедись, что имя файла совпадает!
+    workflow = repo.get_workflow("check.yml") 
     workflow.create_dispatch(repo.default_branch)
 
 st.title("📦 TrackShip")
@@ -53,7 +52,6 @@ if st.button("🔄 Обновить сейчас"):
         except Exception as e:
             st.error(f"Ошибка запуска: {e}")
             
-# Формы добавления и удаления
 col_add, col_del = st.columns(2)
 with col_add:
     with st.expander("➕ Добавить новую посылку"):
@@ -63,8 +61,16 @@ with col_add:
             comment = st.text_input("Что внутри? (Комментарий)")
             if st.form_submit_button("Сохранить"):
                 if track:
-                    now = datetime.now().strftime("%d.%m %H:%M")
-                    new_row = pd.DataFrame([{"track_number": track.strip(), "carrier": carrier, "comment": comment.strip() or "-", "status": "Ожидает регистрации", "last_change": now, "check_time": now}])
+                    # Используем КИЕВСКОЕ время
+                    now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+                    new_row = pd.DataFrame([{
+                        "track_number": track.strip(), 
+                        "carrier": carrier, 
+                        "comment": comment.strip() or "-", 
+                        "status": "Ожидает регистрации", 
+                        "last_change": now, 
+                        "check_time": now
+                    }])
                     df = pd.concat([df, new_row], ignore_index=True)
                     save_data(df, file_sha, f"Add: {track}")
                     st.success("Добавлено!")
