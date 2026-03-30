@@ -1,29 +1,7 @@
-import requests
-import pandas as pd
-from github import Github
-import io
-import os
-from datetime import datetime
-import time
-import xml.etree.ElementTree as ET
-
-# Секреты
-GITHUB_TOKEN = os.getenv("G_TOKEN")
-REPO_NAME = os.getenv("REPO_NAME")
-TG_TOKEN = os.getenv("TG_TOKEN")
-TG_CHAT_ID = os.getenv("TG_CHAT_ID")
-
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    try:
-        requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
-    except:
-        pass
-
 def get_meest_status(track):
     try:
-        # Тот самый URL из твоего cURL
-        # Параметр chk может меняться, но пока используем этот статично
+        session = requests.Session()
+        # Тот самый ключ из твоего cURL, попробуем использовать его как основной
         chk = "8645141e4284290f547d92f1fa241731"
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
@@ -36,55 +14,37 @@ def get_meest_status(track):
             'x-requested-with': 'XMLHttpRequest'
         }
         
-        # Meest требует POST с пустым телом (content-length: 0)
-        r = requests.post(url, headers=headers, timeout=15)
+        # POST запрос с пустым телом, как в браузере
+        r = session.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
-            # Парсим XML
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
             
             if items:
-                # В твоем XML самое последнее событие — в последнем блоке <items>
+                # Берем самый последний статус (последний в списке XML)
                 last_item = items[-1]
-                status_text = last_item.find("ActionMessages").text
-                city = last_item.find("City").text
                 
-                if status_text:
-                    return f"{status_text} ({city})" if city else status_text
+                # Извлекаем все нужные поля
+                raw_date = last_item.find("DateTimeAction").text # 2026-03-20 19:55:48
+                msg = last_item.find("ActionMessages").text      # Відправлено з Нью-Джерсі, США
+                country = last_item.find("Country").text         # США
+                city = last_item.find("City").text               # Порт-Рідінг
+                
+                # Форматируем дату (убираем секунды и год для краткости, если нужно)
+                # Из "2026-03-20 19:55:48" делаем "20.03 19:55"
+                try:
+                    dt = datetime.strptime(raw_date, "%Y-%m-%d %H:%M:%S")
+                    pretty_date = dt.strftime("%d.%m %H:%M")
+                except:
+                    pretty_date = raw_date
+
+                # Собираем финальную строку "один в один"
+                full_status = f"{pretty_date} — {msg} ({country}, {city})"
+                return full_status
             
-            return "Статус уточняется"
+            return "Данные о посылке еще не поступили"
             
-        return f"Meest: Код {r.status_code}"
+        return f"Meest: Ошибка {r.status_code}"
     except Exception as e:
-        return f"Ошибка обработки XML"
-
-# --- ОСНОВНОЙ ЦИКЛ ---
-try:
-    send_telegram("🤖 Робот запущен, проверяю треки (XML Mode)...")
-    
-    g = Github(GITHUB_TOKEN)
-    repo = g.get_repo(REPO_NAME)
-    file_content = repo.get_contents("data.csv")
-    df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
-    
-    if not df.empty:
-        for index, row in df.iterrows():
-            track = str(row['track_number']).strip()
-            carrier = row['carrier']
-            
-            if carrier == "Мист Экспресс":
-                new_status = get_meest_status(track)
-                send_telegram(f"📦 Трек: {track}\n📍 Статус: {new_status}")
-                
-                df.at[index, 'status'] = new_status
-                df.at[index, 'last_check'] = datetime.now().strftime("%d.%m %H:%M")
-                time.sleep(2)
-
-        # Сохранение обновленной таблицы
-        new_csv = df.to_csv(index=False)
-        repo.update_file("data.csv", "Update Meest via XML Parser", new_csv, file_content.sha)
-        send_telegram("✅ Все данные обновлены.")
-
-except Exception as e:
-    send_telegram(f"💥 Сбой: {str(e)}")
+        return f"Ошибка обработки: {str(e)}"
