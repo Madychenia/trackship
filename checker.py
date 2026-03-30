@@ -22,7 +22,7 @@ def send_telegram(message):
     try:
         requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
     except:
-        print("Ошибка отправки в Telegram")
+        print("Ошибка Telegram")
 
 def get_meest_status(track):
     try:
@@ -39,8 +39,31 @@ def get_meest_status(track):
             msg = last.find('ActionMessages').text or ""
             return f"🕒 {dt} | {city} | {msg}"
         return "📦 Ожидает регистрации"
-    except: 
-        return "⚠️ Ошибка Meest"
+    except: return "⚠️ Ошибка Meest"
+
+def get_np_status(track):
+    try:
+        url = "https://api.novaposhta.ua/v2.0/json/"
+        data = {
+            "modelName": "TrackingDocument",
+            "calledMethod": "getStatusDocuments",
+            "methodProperties": {
+                "Documents": [{"DocumentNumber": str(track), "Phone": ""}]
+            }
+        }
+        r = requests.post(url, json=data, timeout=15)
+        if r.status_code == 200:
+            res = r.json()
+            if res['success'] and res['data']:
+                info = res['data'][0]
+                status = info.get('Status', 'Не найдено')
+                warehouse = info.get('WarehouseStation', '')
+                # Если посылку еще не создали или номер неверный
+                if status == "Номер не найден":
+                    return "📦 Ожидает регистрации"
+                return f"🚚 {status} | {warehouse}"
+        return "📦 Номер не найден"
+    except: return "⚠️ Ошибка НП"
 
 try:
     g = Github(GITHUB_TOKEN)
@@ -51,37 +74,37 @@ try:
     tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
     mapping = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
     df = df.rename(columns=mapping)
-    
     for col in tech_cols:
         if col not in df.columns: df[col] = "-"
 
     if not df.empty:
         updated_any = False
-        # КИЕВСКОЕ время для проверки
         now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
         
         for index, row in df.iterrows():
-            if row['carrier'] == "Мист Экспресс":
-                track = str(row['track_number']).strip()
-                new_status = get_meest_status(track)
-                current_status = str(row['status'])
-                
-                # Время проверки обновляем ВСЕГДА
-                df.at[index, 'check_time'] = now
-                
-                # Статус и Ласт обновляем только если статус изменился
-                if new_status != current_status:
-                    df.at[index, 'status'] = new_status
-                    df.at[index, 'last_change'] = now
-                    comment = f" ({row['comment']})" if row['comment'] != "-" else ""
-                    send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}{comment}\n{new_status}")
-                    updated_any = True
-                
-            time.sleep(2) # Пауза между запросами
+            track = str(row['track_number']).strip()
+            carrier = row['carrier']
+            current_status = str(row['status'])
             
-        # Сохраняем изменения в GitHub
-        repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
-        print(f"Check complete at {now}")
+            # Логика выбора оператора
+            if carrier == "Мист Экспресс":
+                new_status = get_meest_status(track)
+            elif carrier == "Новая почта":
+                new_status = get_np_status(track)
+            else:
+                continue
+                
+            df.at[index, 'check_time'] = now
+            
+            if new_status != current_status:
+                df.at[index, 'status'] = new_status
+                df.at[index, 'last_change'] = now
+                comment = f" ({row['comment']})" if row['comment'] != "-" else ""
+                send_telegram(f"🔔 ОБНОВЛЕНИЕ ({carrier})\n📦 {track}{comment}\n{new_status}")
+                updated_any = True
+            
+            time.sleep(1) # НП работает быстро, 1 сек хватит
 
-except Exception as e: 
-    print(f"Error: {e}")
+        repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
+
+except Exception as e: print(f"Error: {e}")
