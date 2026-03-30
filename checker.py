@@ -1,3 +1,14 @@
+import pytz # Нужно добавить в начало файла к импортам
+
+# ... (весь твой код до момента получения времени) ...
+
+# Заменяем получение времени на киевское
+kiev_tz = pytz.timezone('Europe/Kiev')
+now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+
+# ... (далее код без изменений) ...
+
+
 import requests, pandas as pd, os, hashlib, time, io
 from github import Github
 from datetime import datetime
