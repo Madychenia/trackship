@@ -4,7 +4,6 @@ from github import Github
 from datetime import datetime
 import io
 
-# 1. СРАЗУ ВКЛЮЧАЕМ ШИРОКИЙ ЭКРАН
 st.set_page_config(page_title="TrackShip", layout="wide")
 
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -17,33 +16,21 @@ def load_data():
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
     
-    # Список всех нужных колонок
-    mapping = {
-        'track_number': 'Трек',
-        'carrier': 'Оператор',
-        'status': 'Статус',
-        'last_change': 'Ласт',
-        'check_time': 'Чек'
-    }
-    
-    # Если каких-то колонок нет в файле (после чистки), создаем их пустыми
-    for tech_name in mapping.keys():
-        if tech_name not in df.columns:
-            df[tech_name] = "-"
+    # 1. Защита от прошлого сбоя: если в файле русские заголовки, возвращаем им английский вид
+    emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
+    df = df.rename(columns=emergency_map)
 
-    # Оставляем и переименовываем строго в нужном порядке
-    df = df[list(mapping.keys())].rename(columns=mapping)
-    return df, file_content.sha
+    # 2. Строго фиксируем технические колонки
+    tech_cols = ['track_number', 'carrier', 'status', 'last_change', 'check_time']
+    for col in tech_cols:
+        if col not in df.columns:
+            df[col] = "-"
+            
+    return df[tech_cols], file_content.sha
 
 def save_data(df, sha):
-    df_save = df.rename(columns={
-        'Трек': 'track_number',
-        'Оператор': 'carrier',
-        'Статус': 'status',
-        'Ласт': 'last_change',
-        'Чек': 'check_time'
-    })
-    repo.update_file("data.csv", "Update tracking data", df_save.to_csv(index=False), sha)
+    # Сохраняем ВСЕГДА только технические названия
+    repo.update_file("data.csv", "Update tracking data", df.to_csv(index=False), sha)
 
 st.title("📦 TrackShip")
 
@@ -51,7 +38,7 @@ try:
     df, file_sha = load_data()
 except Exception as e:
     st.error(f"Ошибка загрузки: {e}")
-    df = pd.DataFrame(columns=['Трек', 'Оператор', 'Статус', 'Ласт', 'Чек'])
+    df = pd.DataFrame(columns=['track_number', 'carrier', 'status', 'last_change', 'check_time'])
 
 with st.expander("➕ Новый ордер"):
     with st.form("add_form", clear_on_submit=True):
@@ -61,7 +48,13 @@ with st.expander("➕ Новый ордер"):
         if st.form_submit_button("Добавить"):
             if track:
                 now = datetime.now().strftime("%d.%m %H:%M")
-                new_row = pd.DataFrame([{"Трек": track.strip(), "Оператор": carrier, "Статус": "Добавлен", "Ласт": now, "Чек": now}])
+                new_row = pd.DataFrame([{
+                    "track_number": track.strip(), 
+                    "carrier": carrier, 
+                    "status": "Ожидает регистрации", 
+                    "last_change": now, 
+                    "check_time": now
+                }])
                 df = pd.concat([df, new_row], ignore_index=True)
                 save_data(df, file_sha)
                 st.success("Добавлено!")
@@ -69,9 +62,18 @@ with st.expander("➕ Новый ордер"):
 
 if not df.empty:
     st.write("### Твои посылки")
-    # НАСТРОЙКА ОТОБРАЖЕНИЯ: Статус делаем очень широким
+    
+    # 3. Переводим на русский ТОЛЬКО для визуала (не меняя исходник)
+    display_df = df.rename(columns={
+        'track_number': 'Трек',
+        'carrier': 'Оператор',
+        'status': 'Статус',
+        'last_change': 'Ласт',
+        'check_time': 'Чек'
+    })
+    
     st.dataframe(
-        df, 
+        display_df, 
         use_container_width=True, 
         hide_index=True,
         column_config={
@@ -79,6 +81,6 @@ if not df.empty:
             "Трек": st.column_config.TextColumn("Трек", width="medium"),
             "Оператор": st.column_config.TextColumn("Оператор", width="small"),
             "Ласт": st.column_config.TextColumn("Ласт", width="small"),
-            "Чек": st.column_config.TextColumn("Чек", width="small"),
+            "Чек": st.column_config.TextColumn("Чек", width="small")
         }
     )
