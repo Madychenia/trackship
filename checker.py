@@ -1,14 +1,10 @@
 import requests
 import pandas as pd
 from github import Github
-import io
-import os
+import io, os, hashlib, time
 from datetime import datetime
-import time
 import xml.etree.ElementTree as ET
-import hashlib
 
-# --- Секреты ---
 GITHUB_TOKEN = os.getenv("G_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
 TG_TOKEN = os.getenv("TG_TOKEN")
@@ -16,80 +12,68 @@ TG_CHAT_ID = os.getenv("TG_CHAT_ID")
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    try:
-        requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
-    except:
-        pass
-
-def generate_meest_chk(track):
-    salt = "721f9793f5f239a47d69df922795267d"
-    string_to_hash = f"{salt}{track}{salt}"
-    return hashlib.md5(string_to_hash.encode()).hexdigest()
+    requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
 
 def get_meest_status(track):
     try:
-        chk = generate_meest_chk(track)
-        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
+        salt = "721f9793f5f239a47d69df922795267d"
+        chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
+        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
+        
         headers = {
-            'accept': 'application/xml, text/xml, */*; q=0.01',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'x-requested-with': 'XMLHttpRequest',
             'referer': 'https://t.meest-group.com/n/'
         }
+        
         session = requests.Session()
         session.get("https://t.meest-group.com/n/", headers=headers, timeout=10)
         r = session.post(url, headers=headers, timeout=15)
         
-        if r.status_code == 200:
-            if not r.text.strip() or "<items>" not in r.text:
-                return "📦 Ожидает регистрации"
+        if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
-            items = root.findall(".//items")
-            if items:
-                last = items[-1]
-                dt = last.find("DateTimeAction").text
-                msg = last.find("ActionMessages").text
-                city = last.find("City").text if last.find("City") is not None else ""
-                # Формируем красивый статус для Telegram
-                return f"🕒 {dt} | {city} | {msg}"
-        return f"Meest: Код {r.status_code}"
-    except Exception as e:
-        return f"⚠️ Ошибка: {str(e)}"
+            last = root.findall(".//items")[-1]
+            return f"🕒 {last.find('DateTimeAction').text} | {last.find('City').text} | {last.find('ActionMessages').text}"
+        return "📦 Ожидает регистрации"
+    except:
+        return "⚠️ Ошибка Meest"
 
-# --- ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ ---
 try:
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(REPO_NAME)
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
-    # 1. ЖЕСТКО ОГРАНИЧИВАЕМ СПИСОК КОЛОНОК
-    # Это сразу уберет 'date', 'id', 'link' и любые другие лишние хвосты
-    needed_cols = ['track_number', 'carrier', 'status', 'last_check']
-    df = df[[c for c in needed_cols if c in df.columns]]
+    # Маппинг для синхронизации с интерфейсом
+    mapping = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
+    df = df.rename(columns=mapping)
 
     if not df.empty:
         updated_any = False
+        now = datetime.now().strftime("%d.%m %H:%M")
+
         for index, row in df.iterrows():
             track = str(row['track_number']).strip()
-            carrier = row['carrier']
-            current_status = str(row['status']) if pd.notna(row['status']) else ""
-            
-            if carrier == "Мист Экспресс":
+            if row['carrier'] == "Мист Экспресс":
                 new_status = get_meest_status(track)
+                current_status = str(row['status']) if pd.notna(row['status']) else ""
                 
+                # ЧЕК обновляем ВСЕГДА
+                df.at[index, 'check_time'] = now
+                
+                # ЛАСТ обновляем ТОЛЬКО при новом статусе
                 if new_status != current_status:
-                    send_telegram(f"🔔 *ОБНОВЛЕНИЕ ТРЕКА*\n📦 {track}\n{new_status}")
                     df.at[index, 'status'] = new_status
-                    df.at[index, 'last_check'] = datetime.now().strftime("%d.%m %H:%M")
-                    updated_any = True
-            
+                    df.at[index, 'last_change'] = now
+                    send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}\n{new_status}")
+                
+                updated_any = True
             time.sleep(2)
 
-        # 2. СОХРАНЯЕМ БЕЗ ИНДЕКСА (уберет нумерацию 0, 1, 2 в начале)
         if updated_any:
-            new_csv = df.to_csv(index=False) # index=False убирает первую пустую колонку
-            repo.update_file("data.csv", "Final Interface Clean", new_csv, file_content.sha)
+            # Возвращаем красивые имена перед записью в CSV
+            df_final = df.rename(columns={v: k for k, v in mapping.items()})
+            repo.update_file("data.csv", f"Pulse check: {now}", df_final.to_csv(index=False), file_content.sha)
             
 except Exception as e:
-    send_telegram(f"🚨 Ошибка интерфейса: {str(e)}")
+    send_telegram(f"🚨 Ошибка: {str(e)}")
