@@ -85,4 +85,4 @@ with col_del:
 if not df.empty:
     st.write("### Таблица заказов")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, use_container_width=True, hide_index=True, selection_mode="disabled")
