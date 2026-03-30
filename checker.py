@@ -26,7 +26,12 @@ def get_meest_status(track):
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             last = root.findall(".//items")[-1]
-            return f"🕒 {last.find('DateTimeAction').text} | {last.find('City').text} | {last.find('ActionMessages').text}"
+            dt = last.find('DateTimeAction').text or ""
+            # Безопасное извлечение города, чтобы не выпадало "None"
+            city_node = last.find('City')
+            city = city_node.text if city_node is not None and city_node.text else ""
+            msg = last.find('ActionMessages').text or ""
+            return f"🕒 {dt} | {city} | {msg}"
         return "📦 Ожидает регистрации"
     except: return "⚠️ Ошибка Meest"
 
@@ -36,27 +41,47 @@ try:
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
-    mapping = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
-    df = df.rename(columns=mapping)
+    # Аварийное переименование, если файл сломан
+    emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
+    df = df.rename(columns=emergency_map)
 
-    # Гарантируем наличие колонок в DF
-    for col in mapping.values():
+    tech_cols = ['track_number', 'carrier', 'status', 'last_change', 'check_time']
+    for col in tech_cols:
         if col not in df.columns: df[col] = "-"
 
     if not df.empty:
         updated_any = False
         now = datetime.now().strftime("%d.%m %H:%M")
+        
         for index, row in df.iterrows():
             if row['carrier'] == "Мист Экспресс":
-                new_status = get_meest_status(str(row['track_number']).strip())
+                track = str(row['track_number']).strip()
+                if track == "-" or track == "": continue # Игнорируем битые строки
+                
+                new_status = get_meest_status(track)
+                current_status = str(row['status'])
+                
                 df.at[index, 'check_time'] = now
-                if new_status != str(row['status']):
+                
+                # Фильтр от ложных срабатываний из-за сдвига пробелов или слова None
+                clean_new = new_status.replace(" | None | ", " | ").replace(" |  | ", " | ")
+                clean_old = current_status.replace(" | None | ", " | ").replace(" |  | ", " | ").replace(" | УКРАЇНА None | ", " | ")
+                
+                if clean_new != clean_old and current_status != "-":
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
-                    send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {row['track_number']}\n{new_status}")
+                    # Не шлем уведомление, если это самый первый прогон после ошибки
+                    if not current_status.startswith("-"):
+                        send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}\n{new_status}")
+                elif current_status == "-":
+                    # Просто восстанавливаем статус без спама
+                    df.at[index, 'status'] = new_status
+                    df.at[index, 'last_change'] = now
+                
                 updated_any = True
             time.sleep(2)
+            
         if updated_any:
-            df_final = df.rename(columns={v: k for k, v in mapping.items()})
-            repo.update_file("data.csv", f"Pulse: {now}", df_final.to_csv(index=False), file_content.sha)
+            # Сохраняем ТОЛЬКО технические колонки
+            repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
 except Exception as e: send_telegram(f"🚨 Ошибка: {str(e)}")
