@@ -1,48 +1,55 @@
 import streamlit as st
 import pandas as pd
+from github import Github
 from datetime import datetime
+import io
 
-# Настройка страницы
-st.set_page_config(page_title="TrackShip", page_icon="📦", layout="centered")
+# Конфигурация из Secrets
+GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+REPO_NAME = st.secrets["REPO_NAME"]
 
-st.title("📦 TrackShip: Управление заказами")
+# Подключение к GitHub
+g = Github(GITHUB_TOKEN)
+repo = g.get_repo(REPO_NAME)
 
-# Инициализация "базы данных" в сессии (пока временная)
-if 'orders' not in st.session_state:
-    st.session_state.orders = []
+def load_data():
+    file_content = repo.get_contents("data.csv")
+    return pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8'))), file_content.sha
 
-# --- Кнопка "Новый ордер" в сайдбаре или сверху ---
-with st.expander("➕ Добавить новый ордер", expanded=False):
-    with st.form("new_order_form", clear_on_submit=True):
-        carrier = st.selectbox("Выберите логиста", ["Мист Экспресс", "Новая почта"])
-        track_number = st.text_input("Введите трек-номер")
-        submit_button = st.form_submit_button("Окей, добавить")
+def save_data(df, sha):
+    csv_string = df.to_csv(index=False)
+    repo.update_file("data.csv", "Update tracking data", csv_string, sha)
 
-        if submit_button:
-            if track_number:
-                new_entry = {
-                    "Дата": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Перевозчик": carrier,
-                    "Трек-номер": track_number,
-                    "Статус": "Ожидает обновления...",
-                    "Последняя проверка": "-"
-                }
-                st.session_state.orders.append(new_entry)
-                st.success(f"Трек {track_number} добавлен!")
-            else:
-                st.error("Введите номер трека!")
+st.title("📦 TrackShip")
 
-# --- Список заказов ---
-st.subheader("Мои отслеживания")
-if st.session_state.orders:
-    df = pd.DataFrame(st.session_state.orders)
+# Загрузка данных
+try:
+    df, file_sha = load_data()
+except:
+    st.error("Ошибка загрузки data.csv")
+    df = pd.DataFrame()
+
+# Форма добавления
+with st.expander("➕ Новый ордер"):
+    with st.form("add_form", clear_on_submit=True):
+        carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
+        track = st.text_input("Трек-номер")
+        if st.form_submit_button("Добавить"):
+            new_row = pd.DataFrame([{
+                "date": datetime.now().strftime("%d.%m %H:%M"),
+                "carrier": carrier,
+                "track_number": track,
+                "status": "Добавлен",
+                "last_check": "-"
+            }])
+            df = pd.concat([df, new_row], ignore_index=True)
+            save_data(df, file_sha)
+            st.success("Сохранено в GitHub!")
+            st.rerun()
+
+# Отображение
+st.subheader("Список треков")
+if not df.empty:
     st.dataframe(df, use_container_width=True)
-    
-    if st.button("🔄 Проверить статусы сейчас"):
-        st.info("Здесь мы запустим парсер, когда пропишем логику...")
 else:
-    st.write("Пока нет активных заказов. Добавь первый!")
-
-# Футер с информацией об автообновлении
-st.divider()
-st.caption("Автоматическая проверка: раз в 2 часа | Уведомления: Telegram")
+    st.info("Треков пока нет.")
