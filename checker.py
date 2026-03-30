@@ -1,10 +1,13 @@
-import streamlit as st # (только для app.py)
 import pandas as pd
 from github import Github
-from datetime import datetime  # ВАЖНО: именно так!
+from datetime import datetime
 import pytz
 import io
-import os # (только для checker.py)
+import os
+import time
+import hashlib
+import requests
+import xml.etree.ElementTree as ET
 
 # Установка часового пояса
 kiev_tz = pytz.timezone('Europe/Kiev')
@@ -16,7 +19,10 @@ TG_CHAT_ID = os.getenv("TG_CHAT_ID")
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
+    try:
+        requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
+    except:
+        print("Ошибка отправки в Telegram")
 
 def get_meest_status(track):
     try:
@@ -33,7 +39,8 @@ def get_meest_status(track):
             msg = last.find('ActionMessages').text or ""
             return f"🕒 {dt} | {city} | {msg}"
         return "📦 Ожидает регистрации"
-    except: return "⚠️ Ошибка Meest"
+    except: 
+        return "⚠️ Ошибка Meest"
 
 try:
     g = Github(GITHUB_TOKEN)
@@ -42,31 +49,39 @@ try:
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
     tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
-    # Приведение названий колонок к единому стандарту
     mapping = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
     df = df.rename(columns=mapping)
+    
     for col in tech_cols:
         if col not in df.columns: df[col] = "-"
 
     if not df.empty:
         updated_any = False
-        now = datetime.now().strftime("%d.%m %H:%M")
+        # КИЕВСКОЕ время для проверки
+        now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+        
         for index, row in df.iterrows():
             if row['carrier'] == "Мист Экспресс":
                 track = str(row['track_number']).strip()
                 new_status = get_meest_status(track)
                 current_status = str(row['status'])
+                
+                # Время проверки обновляем ВСЕГДА
                 df.at[index, 'check_time'] = now
-                if new_status != current_status and not current_status.startswith("-"):
+                
+                # Статус и Ласт обновляем только если статус изменился
+                if new_status != current_status:
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
                     comment = f" ({row['comment']})" if row['comment'] != "-" else ""
                     send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}{comment}\n{new_status}")
-                elif current_status == "-":
-                    df.at[index, 'status'] = new_status
-                    df.at[index, 'last_change'] = now
-                updated_any = True
-            time.sleep(2)
-        if updated_any:
-            repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
-except Exception as e: print(f"Error: {e}")
+                    updated_any = True
+                
+            time.sleep(2) # Пауза между запросами
+            
+        # Сохраняем изменения в GitHub
+        repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
+        print(f"Check complete at {now}")
+
+except Exception as e: 
+    print(f"Error: {e}")
