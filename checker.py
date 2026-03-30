@@ -1,18 +1,13 @@
-import pytz # Нужно добавить в начало файла к импортам
-
-# ... (весь твой код до момента получения времени) ...
-
-# Заменяем получение времени на киевское
-kiev_tz = pytz.timezone('Europe/Kiev')
-now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
-
-# ... (далее код без изменений) ...
-
-
-import requests, pandas as pd, os, hashlib, time, io
+import streamlit as st # (только для app.py)
+import pandas as pd
 from github import Github
-from datetime import datetime
-import xml.etree.ElementTree as ET
+from datetime import datetime  # ВАЖНО: именно так!
+import pytz
+import io
+import os # (только для checker.py)
+
+# Установка часового пояса
+kiev_tz = pytz.timezone('Europe/Kiev')
 
 GITHUB_TOKEN = os.getenv("G_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
