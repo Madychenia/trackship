@@ -24,26 +24,27 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
+        import hashlib
+        import requests
+        
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        
-        # Возвращаем ровно тот GET-запрос, который у тебя изначально работал
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
         
-        r = requests.get(url, headers=headers, timeout=15)
+        # Абсолютно голый запрос без headers, как у тебя и было изначально
+        r = requests.get(url, timeout=15)
         
         if "<items>" in r.text:
             root = ET.fromstring(r.text)
-            items = root.findall(".//items")
-            if items:
-                last = items[-1]
-                dt = last.find('DateTimeAction').text or ""
-                city = last.find('City').text if last.find('City') is not None else ""
-                msg = last.find('ActionMessages').text or ""
-                return f"🕒 {dt} | {city} | {msg}".strip()
+            last = root.findall(".//items")[-1]
+            dt = last.find('DateTimeAction').text or ""
+            city = last.find('City').text if last.find('City') is not None else ""
+            msg = last.find('ActionMessages').text or ""
+            return f"🕒 {dt} | {city} | {msg}".strip()
     except Exception as e:
         print(f"Meest Error: {e}")
+        pass
+        
     return "Ожидает регистрации"
 
 def get_np_global_status(track):
