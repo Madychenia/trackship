@@ -1,11 +1,12 @@
-import streamlit as st
+import streamlit as st # (только для app.py)
 import pandas as pd
 from github import Github
-from datetime import datetime
-import pytz  # Добавь эту строку
+from datetime import datetime  # ВАЖНО: именно так!
+import pytz
 import io
+import os # (только для checker.py)
 
-# Создаем переменную часового пояса
+# Установка часового пояса
 kiev_tz = pytz.timezone('Europe/Kiev')
 
 st.set_page_config(page_title="TrackShip", layout="wide")
