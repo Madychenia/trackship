@@ -5,9 +5,11 @@ import datetime
 import pytz
 import io
 
+# Настройка страницы
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
+# Секреты
 GITHUB_TOKEN = st.secrets["G_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
 
@@ -42,7 +44,7 @@ with col1:
         trigger_action()
         st.info("Запрос отправлен...")
 
-# Статичный вывод таблицы (убирает клики и красные рамки)
+# Статичный вывод таблицы
 st.table(df.rename(columns={v: k for k, v in emergency_map.items()}))
 
 with st.expander("➕ Добавить новую посылку"):
