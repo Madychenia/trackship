@@ -8,6 +8,7 @@ import time
 import hashlib
 import requests
 import re
+import random
 
 kiev_tz = pytz.timezone('Europe/Kiev')
 G_TOKEN = os.getenv("G_TOKEN")
@@ -24,20 +25,27 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
+        
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        
-        # ВОТ ОНО: В потерянном куске кода был параметр ext_track=&
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
+        # Генерируем случайный IP для обхода блокировки
+        ip = f"{random.randint(46, 190)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        
+        # Максимальная маскировка под обычный браузер
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36', 
             'X-Requested-With': 'XMLHttpRequest',
-            'Accept': '*/*'
+            'Accept': 'application/xml, text/xml, */*; q=0.01',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Forwarded-For': ip,
+            'X-Real-IP': ip,
+            'Client-IP': ip
         }
         
-        # Делаем POST-запрос
-        r = requests.post(url, headers=headers, timeout=15)
+        # Делаем POST-запрос с пустой датой, чтобы сымитировать отправку формы
+        r = requests.post(url, headers=headers, data="", timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
@@ -45,7 +53,6 @@ def get_meest_status(track):
             if items:
                 last = items[-1]
                 
-                # Безопасное чтение XML
                 dt_el = last.find('DateTimeAction')
                 dt = dt_el.text if dt_el is not None else ""
                 
@@ -57,10 +64,10 @@ def get_meest_status(track):
                 
                 return f"🕒 {dt} | {city} | {msg}".strip()
         else:
-            # Если Мист снова нас забанит, бот покажет это явно
             send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:100]}</code>")
             
     except Exception as e:
+        send_telegram(f"⚠️ <b>ОШИБКА КОДА MEEST ({track}):</b>\n<code>{e}</code>")
         pass
         
     return "Ожидает регистрации"
@@ -120,7 +127,6 @@ try:
 
         df.at[i, 'check_time'] = now
         
-        # Если статус изменился и это не ошибка
         if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
