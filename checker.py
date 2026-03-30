@@ -28,7 +28,14 @@ def get_meest_status(track):
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
-        r = requests.get(url, timeout=15)
+        
+        # Возвращаем заголовки, имитирующие браузер, и делаем POST запрос (как у тебя работало изначально)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+        r = requests.post(url, headers=headers, timeout=15)
+        
         if "<items>" in r.text:
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
@@ -38,7 +45,9 @@ def get_meest_status(track):
                 city = last.find('City').text if last.find('City') is not None else ""
                 msg = last.find('ActionMessages').text or ""
                 return f"🕒 {dt} | {city} | {msg}".strip()
-    except: pass
+    except Exception as e:
+        print(f"Meest Error for {track}: {e}")
+        pass
     return "Ожидает регистрации"
 
 def get_np_global_status(track):
