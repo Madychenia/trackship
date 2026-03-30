@@ -91,7 +91,11 @@ with col_del:
 if not df.empty:
     st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
-    st.dataframe(
+    
+    # 100% блокировка кликов мышкой по таблице через CSS
+    st.markdown('<style>[data-testid="stDataFrame"] {pointer-events: none;}</style>', unsafe_allow_html=True)
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
     display_df, 
     use_container_width=True, 
     hide_index=True,
