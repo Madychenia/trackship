@@ -14,7 +14,11 @@ repo = g.get_repo(REPO_NAME)
 
 def load_data():
     file_content = repo.get_contents("data.csv")
-    return pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8'))), file_content.sha
+    df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
+    # Оставляем только нужные колонки при чтении
+    needed_cols = ['track_number', 'carrier', 'status', 'last_check']
+    df = df[[c for c in needed_cols if c in df.columns]]
+    return df, file_content.sha
 
 def save_data(df, sha):
     csv_string = df.to_csv(index=False)
@@ -27,35 +31,32 @@ try:
     df, file_sha = load_data()
 except:
     st.error("Ошибка загрузки data.csv")
-    df = pd.DataFrame()
+    df = pd.DataFrame(columns=['track_number', 'carrier', 'status', 'last_check'])
 
-# Форма добавления
+# Форма добавления (упрощенная)
 with st.expander("➕ Новый ордер"):
     with st.form("add_form", clear_on_submit=True):
         carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
         track = st.text_input("Трек-номер")
         if st.form_submit_button("Добавить"):
-            new_row = pd.DataFrame([{
-                "date": datetime.now().strftime("%d.%m %H:%M"),
-                "carrier": carrier,
-                "track_number": track,
-                "status": "Добавлен",
-                "last_check": "-"
-            }])
-            df = pd.concat([df, new_row], ignore_index=True)
-            save_data(df, file_sha)
-            st.success("Сохранено в GitHub!")
-            st.rerun()
+            if track:
+                new_row = pd.DataFrame([{
+                    "track_number": track.strip(),
+                    "carrier": carrier,
+                    "status": "Ожидает регистрации",
+                    "last_check": datetime.now().strftime("%d.%m %H:%M")
+                }])
+                df = pd.concat([df, new_row], ignore_index=True)
+                save_data(df, file_sha)
+                st.success("Добавлено!")
+                st.rerun()
+            else:
+                st.warning("Введите трек-номер")
 
-# Отображение таблицы с кликабельными ссылками
+# Отображение таблицы (статичная, некликабельная)
 if not df.empty:
-    # Создаем ссылки для быстрого перехода
-    def make_link(row):
-        if row['carrier'] == "Мист Экспресс":
-            return f"https://ua.meest.com/parcel-track?shipping_number={row['track_number']}"
-        else:
-            return f"https://novaposhtaglobal.ua/track/?query={row['track_number']}"
-
-    df['Ссылка'] = df.apply(make_link, axis=1)
     st.write("### Твои посылки")
-    st.dataframe(df, use_container_width=True)
+    # Используем st.table для полной статичности и hide_index для чистоты
+    st.table(df)
+else:
+    st.info("Список посылок пуст")
