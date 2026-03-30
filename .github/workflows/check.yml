@@ -2,7 +2,7 @@ name: Track Updater
 on:
   schedule:
     - cron: '0 */2 * * *' # Запуск каждые 2 часа
-  workflow_dispatch: # Позволяет запустить вручную кнопкой
+  workflow_dispatch: # Кнопка ручного запуска
 
 jobs:
   build:
@@ -21,4 +21,5 @@ jobs:
           REPO_NAME: ${{ secrets.REPO_NAME }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          NP_TOKEN: ${{ secrets.NP_TOKEN }} # ДОБАВИЛИ ЭТУ СТРОКУ
         run: python checker.py
