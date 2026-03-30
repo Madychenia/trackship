@@ -22,7 +22,6 @@ def send_telegram(message):
         requests.post(url, data={"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
 
 def get_meest_status(track):
-    """Рабочая логика Мист (соль + MD5) с вытягиванием полной строки"""
     try:
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
@@ -31,7 +30,6 @@ def get_meest_status(track):
         root = ET.fromstring(r.text)
         items = root.findall(".//items")
         if items:
-            # Берем последнее событие и вытягиваем ActionMessages целиком
             msg = items[-1].find('ActionMessages').text
             dt = items[-1].find('ActionDate').text or ""
             return f"{dt} | {msg.strip()}"
@@ -39,21 +37,44 @@ def get_meest_status(track):
     return "📦 Meest: Нет данных"
 
 def get_np_global_status(track):
-    """Парсинг НП Глобал"""
+    """Улучшенный парсинг НП Глобал с обходом защиты токена"""
     try:
         s = requests.Session()
-        h = {'User-Agent': 'Mozilla/5.0 Mac', 'Referer': 'https://novaposhtaglobal.ua/track/'}
-        res = s.get("https://novaposhtaglobal.ua/track/", headers=h, timeout=15)
-        token = re.search(r'name="token"\s+value="([^"]+)"', res.text).group(1)
+        # Имитируем реального пользователя с macOS (как у тебя на скринах)
+        h = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Referer': 'https://novaposhtaglobal.ua/track/'
+        }
+        # 1. Сначала заходим на основную страницу, чтобы получить куки и токен
+        main_res = s.get("https://novaposhtaglobal.ua/track/", headers=h, timeout=15)
+        
+        # Ищем токен во всех возможных местах (input или js переменная)
+        token = None
+        token_match = re.search(r'name="token"\s+value="([^"]+)"', main_res.text)
+        if token_match:
+            token = token_match.group(1)
+        else:
+            # Запасной вариант: поиск в скриптах
+            token_match = re.search(r'token\s*[:=]\s*["\']([^"\']+)["\']', main_res.text)
+            if token_match:
+                token = token_match.group(1)
+
+        if not token:
+            return "⚠️ Ошибка авторизации"
+
+        # 2. Делаем запрос к API
         api_url = "https://personal.novaposhtaglobal.ua/tracking.php"
         r = s.post(api_url, data={'token': token, 'num': track.strip(), 'lang': 'uk'}, headers=h, timeout=15)
+        
         data = r.json()
         if data.get('last_status'):
             st = data['last_status']['status_name'].strip()
             dt = data['last_status']['date_status'].strip()
             return f"{dt} | {st}"
-    except: pass
-    return "Номер не найден"
+    except Exception as e:
+        print(f"NP Error: {e}")
+    return "📦 Номер не найден"
 
 try:
     g = Github(G_TOKEN)
@@ -70,19 +91,15 @@ try:
         comment = str(row['comment'])
         old_status = str(row['status']).strip()
         
-        if "Мист" in carrier:
-            new_status = get_meest_status(track)
-        else:
-            new_status = get_np_global_status(track)
-
+        new_status = get_meest_status(track) if "Мист" in carrier else get_np_global_status(track)
+        
         df.at[i, 'check_time'] = now
         
         if new_status.strip() != old_status:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
             
-            # ФОРМИРУЕМ КРАСИВОЕ СООБЩЕНИЕ КАК РАНЬШЕ
-            # Трек в кавычках, коммент, и полный статус с новой строки
+            # Тот самый формат: заголовок, трек в коде, коммент и статус
             tg_msg = (
                 f"🔔 <b>ОБНОВЛЕНИЕ</b> ({carrier})\n"
                 f"📦 <code>{track}</code> ({comment})\n"
@@ -94,4 +111,4 @@ try:
 
     repo.update_file(file.path, f"Auto-check {now}", df.to_csv(index=False), file.sha)
 except Exception as e:
-    print(f"Error: {e}")
+    print(f"Critical Error: {e}")
