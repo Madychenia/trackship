@@ -20,14 +20,12 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Используем проверенный путь, который мы видели в Network
+        # Используем мобильный API эндпоинт, он стабильнее
         url = f"https://t.meest-group.com/api/v1/track/{track}"
-        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Origin': 'https://ua.meest.com',
-            'Referer': 'https://ua.meest.com/'
+            'User-Agent': 'Meest/1.0 (Android 11; Build/RP1A.200720.011)',
+            'Accept': 'application/json',
+            'Host': 't.meest-group.com'
         }
         
         r = requests.get(url, headers=headers, timeout=15)
@@ -35,33 +33,30 @@ def get_meest_status(track):
         if r.status_code == 200:
             data = r.json()
             
-            # 1. Сначала ищем самое свежее событие в списке events
+            # Проверяем наличие событий (самое новое — первое в списке)
             events = data.get('events', [])
             if isinstance(events, list) and len(events) > 0:
-                last_event = events[0]
-                status = last_event.get('status', 'Обработка')
-                city = last_event.get('city', '')
+                last = events[0]
+                status = last.get('status', 'Обработка')
+                city = last.get('city', '')
                 return f"{status} ({city})" if city else status
             
-            # 2. Если списка событий нет, ищем в конфиге
-            config = data.get('config', {})
-            if isinstance(config, dict) and config.get('status'):
-                return config.get('status')
+            # Если событий нет, смотрим основной статус в конфиге
+            if 'config' in data and data['config'].get('status'):
+                return data['config']['status']
                 
-            return "Информация получена, уточняется"
+            return "Статус уточняется"
             
         return f"Meest: Ошибка {r.status_code}"
     except Exception as e:
-        # Если JSON не пришел, выводим более понятную ошибку
-        return "Ошибка данных (Meest)"
+        return "Ошибка парсинга Meest"
 
 def get_np_status(track):
-    # Временно оставляем заглушку, чтобы не отвлекаться
-    return "Проверка НП пропущена"
+    # Оставляем заглушку, пока чиним Мист
+    return "Проверка НП пока отключена"
 
 # --- ОСНОВНОЙ ЦИКЛ ---
 try:
-    # Приветствие в самом начале
     send_telegram("🤖 Робот запущен, проверяю треки...")
     
     g = Github(GITHUB_TOKEN)
@@ -72,24 +67,26 @@ try:
     if df.empty:
         send_telegram("⚠️ В базе пусто.")
     else:
+        # Проходим по ВСЕМ строкам таблицы
         for index, row in df.iterrows():
             track = str(row['track_number']).strip()
             carrier = row['carrier']
             
+            # Нам важен только Мист сейчас
             if carrier == "Мист Экспресс":
                 new_status = get_meest_status(track)
                 
-                # Отправляем отчет только по Мисту, раз мы им занимаемся
-                send_telegram(f"🔔 Обновление трека {track} (Мист):\n{new_status}")
-                
-                # Обновляем CSV
+                # Обновляем статус в таблице ПЕРЕД отправкой в ТГ
                 df.at[index, 'status'] = new_status
                 df.at[index, 'last_check'] = datetime.now().strftime("%d.%m %H:%M")
+                
+                # Отправляем отчет по конкретному треку
+                send_telegram(f"🔔 Трек {track} (Мист):\n{new_status}")
 
-        # Сохраняем только если были изменения по Мисту
+        # Сохраняем обновленную таблицу на GitHub один раз в конце
         new_csv = df.to_csv(index=False)
-        repo.update_file("data.csv", "Update Meest statuses", new_csv, file_content.sha)
-        send_telegram("✅ Проверка Мист Экспресс завершена.")
+        repo.update_file("data.csv", "Auto-update Meest statuses", new_csv, file_content.sha)
+        send_telegram("✅ Все данные по Мист Экспресс обновлены.")
 
 except Exception as e:
-    send_telegram(f"💥 Сбой: {str(e)}")
+    send_telegram(f"💥 Критическая ошибка: {str(e)}")
