@@ -111,9 +111,6 @@ if not df.empty:
     st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
     
-    # CSS-хак убрали. Теперь таблица "живая", текст можно выделять.
-    
-    # Выводим таблицу, намертво запретив редактирование всех колонок
     st.dataframe(
         display_df, 
         use_container_width=True, 
@@ -123,4 +120,3 @@ if not df.empty:
         }
     )
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
