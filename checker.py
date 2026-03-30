@@ -63,22 +63,21 @@ try:
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
-    # УДАЛЯЕМ ЛИШНЕЕ (если колонки существуют)
-    cols_to_drop = ['Unnamed: 0', 'id', 'link', 'date_added']
-    df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
+    # 1. ЖЕСТКО ОГРАНИЧИВАЕМ СПИСОК КОЛОНОК
+    # Это сразу уберет 'date', 'id', 'link' и любые другие лишние хвосты
+    needed_cols = ['track_number', 'carrier', 'status', 'last_check']
+    df = df[[c for c in needed_cols if c in df.columns]]
 
     if not df.empty:
         updated_any = False
         for index, row in df.iterrows():
             track = str(row['track_number']).strip()
             carrier = row['carrier']
-            # Обработка пустых статусов при первом добавлении
             current_status = str(row['status']) if pd.notna(row['status']) else ""
             
             if carrier == "Мист Экспресс":
                 new_status = get_meest_status(track)
                 
-                # Если статус изменился ИЛИ он был пустым (новый трек)
                 if new_status != current_status:
                     send_telegram(f"🔔 *ОБНОВЛЕНИЕ ТРЕКА*\n📦 {track}\n{new_status}")
                     df.at[index, 'status'] = new_status
@@ -87,10 +86,10 @@ try:
             
             time.sleep(2)
 
+        # 2. СОХРАНЯЕМ БЕЗ ИНДЕКСА (уберет нумерацию 0, 1, 2 в начале)
         if updated_any:
-            # Сохраняем упрощенную структуру обратно в GitHub
-            new_csv = df.to_csv(index=False)
-            repo.update_file("data.csv", "Clean Interface Update", new_csv, file_content.sha)
+            new_csv = df.to_csv(index=False) # index=False убирает первую пустую колонку
+            repo.update_file("data.csv", "Final Interface Clean", new_csv, file_content.sha)
             
 except Exception as e:
     send_telegram(f"🚨 Ошибка интерфейса: {str(e)}")
