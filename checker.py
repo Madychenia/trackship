@@ -59,3 +59,7 @@ for index, row in df.iterrows():
 if changes_made:
     csv_string = df.to_csv(index=False)
     repo.update_file("data.csv", "Auto-update statuses", csv_string, file_content.sha)
+
+
+# Добавь это в самый конец файла checker.py
+send_telegram("🤖 Робот запущен, проверяю треки...")
