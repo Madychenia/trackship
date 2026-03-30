@@ -1,20 +1,12 @@
-import pytz # Нужно добавить в начало файла к импортам
-
-# ... (весь твой код до момента получения времени) ...
-
-# Заменяем получение времени на киевское
-kiev_tz = pytz.timezone('Europe/Kiev')
-now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
-
-# ... (далее код без изменений) ...
-
-
 import streamlit as st
 import pandas as pd
 from github import Github
 from datetime import datetime
+import pytz  # Добавь эту строку
 import io
-import time
+
+# Создаем переменную часового пояса
+kiev_tz = pytz.timezone('Europe/Kiev')
 
 st.set_page_config(page_title="TrackShip", layout="wide")
 
