@@ -8,7 +8,7 @@ import time
 import xml.etree.ElementTree as ET
 import hashlib
 
-# --- Секреты GitHub ---
+# --- Секреты ---
 GITHUB_TOKEN = os.getenv("G_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
 TG_TOKEN = os.getenv("TG_TOKEN")
@@ -22,22 +22,28 @@ def send_telegram(message):
         pass
 
 def generate_meest_chk(track):
-    """Генерирует правильный MD5 chk по формуле salt + track + salt"""
+    """
+    ВНИМАНИЕ: Формула из твоего JS-скрипта: salt + number + salt
+    """
     salt = "721f9793f5f239a47d69df922795267d"
+    # Склеиваем строго: соль + номер + соль
     string_to_hash = f"{salt}{track}{salt}"
     return hashlib.md5(string_to_hash.encode()).hexdigest()
 
 def get_meest_status(track):
-    """Получает статус через XML API Meest"""
     try:
         chk = generate_meest_chk(track)
+        # Убираем лишние параметры, оставляем только базу как в твоем скрипте
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
         headers = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'x-requested-with': 'XMLHttpRequest'
+            'accept': 'application/xml, text/xml, */*; q=0.01',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+            'referer': 'https://t.meest-group.com/n/'
         }
         
+        # Сайт делает POST запрос без тела
         r = requests.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
@@ -52,15 +58,16 @@ def get_meest_status(track):
                 dt = last.find("DateTimeAction").text
                 msg = last.find("ActionMessages").text
                 city = last.find("City").text
-                return f"{dt} | {city} | {msg}"
+                country = last.find("Country").text
+                return f"🕒 {dt} | {country}, {city} | {msg}"
             
             return "📦 Статус не найден"
-        return f"Meest Error: {r.status_code}"
+        
+        return f"Meest Error: {r.status_code}" # Если тут 400 - значит salt или формула все еще не те
     except Exception as e:
-        return f"Meest Error: {str(e)}"
+        return f"⚠️ Ошибка Meest: {str(e)}"
 
 def get_nova_poshta_status(track):
-    """Получает статус через публичный API Новой Почты"""
     try:
         url = "https://api.novaposhta.ua/v2.0/json/"
         data = {
@@ -72,17 +79,14 @@ def get_nova_poshta_status(track):
         }
         r = requests.post(url, json=data, timeout=15)
         res = r.json()
-        
         if res.get('success'):
             info = res['data'][0]
-            status = info.get('Status', 'Нет данных')
-            warehouse = info.get('Warehouse', '')
-            return f"{status} {warehouse}".strip()
+            return f"{info.get('Status')} {info.get('Warehouse', '')}".strip()
         return "НП: Ошибка данных"
-    except Exception as e:
-        return f"НП Error: {str(e)}"
+    except:
+        return "НП: Ошибка API"
 
-# --- ОСНОВНОЙ ЦИКЛ ---
+# --- ОСНОВНОЙ ПРОЦЕСС ---
 try:
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(REPO_NAME)
@@ -91,29 +95,29 @@ try:
     
     if not df.empty:
         updated_any = False
-        
         for index, row in df.iterrows():
             track = str(row['track_number']).strip()
             carrier = row['carrier']
             current_status = str(row['status'])
             
-            new_status = ""
             if carrier == "Мист Экспресс":
                 new_status = get_meest_status(track)
             elif carrier == "Новая почта":
                 new_status = get_nova_poshta_status(track)
-            
+            else:
+                continue
+
             if new_status and new_status != current_status:
-                send_telegram(f"🔔 Трек: {track} ({carrier})\nСтатус: {new_status}")
+                send_telegram(f"📦 Трек: {track}\n{new_status}")
                 df.at[index, 'status'] = new_status
                 df.at[index, 'last_check'] = datetime.now().strftime("%d.%m %H:%M")
                 updated_any = True
             
-            time.sleep(1)
+            time.sleep(2)
 
         if updated_any:
             new_csv = df.to_csv(index=False)
-            repo.update_file("data.csv", "Update statuses", new_csv, file_content.sha)
-    
+            repo.update_file("data.csv", f"Auto-update: {datetime.now().strftime('%H:%M')}", new_csv, file_content.sha)
+            
 except Exception as e:
-    send_telegram(f"🚨 Ошибка в скрипте: {str(e)}")
+    send_telegram(f"🚨 Ошибка: {str(e)}")
