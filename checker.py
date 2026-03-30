@@ -27,7 +27,6 @@ def get_meest_status(track):
             root = ET.fromstring(r.text)
             last = root.findall(".//items")[-1]
             dt = last.find('DateTimeAction').text or ""
-            # Безопасное извлечение города, чтобы не выпадало "None"
             city_node = last.find('City')
             city = city_node.text if city_node is not None and city_node.text else ""
             msg = last.find('ActionMessages').text or ""
@@ -41,11 +40,10 @@ try:
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
-    # Аварийное переименование, если файл сломан
-    emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
+    emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
     df = df.rename(columns=emergency_map)
 
-    tech_cols = ['track_number', 'carrier', 'status', 'last_change', 'check_time']
+    tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
     for col in tech_cols:
         if col not in df.columns: df[col] = "-"
 
@@ -56,25 +54,27 @@ try:
         for index, row in df.iterrows():
             if row['carrier'] == "Мист Экспресс":
                 track = str(row['track_number']).strip()
-                if track == "-" or track == "": continue # Игнорируем битые строки
+                if track == "-" or track == "": continue
+                
+                # Достаем комментарий для Telegram
+                comment = str(row['comment']).strip()
+                comment_text = f" ({comment})" if comment and comment != "-" and comment != "nan" else ""
                 
                 new_status = get_meest_status(track)
                 current_status = str(row['status'])
                 
                 df.at[index, 'check_time'] = now
                 
-                # Фильтр от ложных срабатываний из-за сдвига пробелов или слова None
                 clean_new = new_status.replace(" | None | ", " | ").replace(" |  | ", " | ")
                 clean_old = current_status.replace(" | None | ", " | ").replace(" |  | ", " | ").replace(" | УКРАЇНА None | ", " | ")
                 
                 if clean_new != clean_old and current_status != "-":
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
-                    # Не шлем уведомление, если это самый первый прогон после ошибки
                     if not current_status.startswith("-"):
-                        send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}\n{new_status}")
+                        # Сообщение теперь содержит коммент
+                        send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}{comment_text}\n{new_status}")
                 elif current_status == "-":
-                    # Просто восстанавливаем статус без спама
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
                 
@@ -82,6 +82,5 @@ try:
             time.sleep(2)
             
         if updated_any:
-            # Сохраняем ТОЛЬКО технические колонки
             repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
 except Exception as e: send_telegram(f"🚨 Ошибка: {str(e)}")
