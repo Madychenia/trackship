@@ -10,6 +10,7 @@ import requests
 import re
 import xml.etree.ElementTree as ET
 
+# Настройка времени
 kiev_tz = pytz.timezone('Europe/Kiev')
 
 # Секреты из GitHub Actions
@@ -26,7 +27,7 @@ def send_telegram(message):
         pass
 
 def get_meest_status(track):
-    """Рабочая версия Meest с солью"""
+    """Рабочая версия Meest Экспресс (MD5 + Salt)"""
     try:
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
@@ -43,19 +44,16 @@ def get_meest_status(track):
     return "📦 Meest: Данные уточняются"
 
 def get_np_global_status(track):
-    """Автоматический поиск токена и запрос к НП Глобал"""
+    """Парсинг НП Глобал с динамическим токеном"""
     session = requests.Session()
     headers = {'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
     try:
-        # 1. Берем токен со страницы
         main_page = session.get("https://novaposhtaglobal.ua/track/", headers=headers, timeout=10)
         token_match = re.search(r'name="token"\s+value="([^"]+)"', main_page.text)
         if not token_match:
             return "⚠️ Ошибка токена"
         
         token = token_match.group(1)
-        
-        # 2. Запрос статуса
         api_url = 'https://personal.novaposhtaglobal.ua/tracking.php'
         files = {
             'token': (None, token),
@@ -79,7 +77,7 @@ try:
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
     
-    # Стандартизация колонок
+    # Колонки
     df.columns = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
     
     updated = False
@@ -101,8 +99,8 @@ try:
             df.at[i, 'last_change'] = now
             send_telegram(f"🔔 {carrier}\n📦 {track}\n{new_status}")
             updated = True
-        time.sleep(1) # Пауза чтобы не забанили
+        time.sleep(1)
 
     repo.update_file("data.csv", f"Update: {now}", df.to_csv(index=False), file_content.sha)
 except Exception as e:
-    print(f"Критическая ошибка: {e}")
+    print(f"Ошибка: {e}")
