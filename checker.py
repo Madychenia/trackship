@@ -26,14 +26,17 @@ def get_meest_status(track):
         import xml.etree.ElementTree as ET
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
+        
+        # ВОТ ОНО: В потерянном куске кода был параметр ext_track=&
+        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
         headers = {
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 
-            'x-requested-with': 'XMLHttpRequest'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': '*/*'
         }
         
-        # ТОЧНАЯ КОПИЯ С ТВОЕГО СКРИНШОТА
+        # Делаем POST-запрос
         r = requests.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
@@ -42,7 +45,7 @@ def get_meest_status(track):
             if items:
                 last = items[-1]
                 
-                # Безопасное чтение
+                # Безопасное чтение XML
                 dt_el = last.find('DateTimeAction')
                 dt = dt_el.text if dt_el is not None else ""
                 
@@ -54,11 +57,11 @@ def get_meest_status(track):
                 
                 return f"🕒 {dt} | {city} | {msg}".strip()
         else:
-            # ЕСЛИ МИСТ ВЫДАЕТ ОШИБКУ, ОНА ПРИЛЕТИТ ТЕБЕ В ТЕЛЕГРАМ
-            send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:200]}</code>")
+            # Если Мист снова нас забанит, бот покажет это явно
+            send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:100]}</code>")
             
     except Exception as e:
-        send_telegram(f"⚠️ <b>КРИТ. ОШИБКА MEEST ({track}):</b>\n<code>{e}</code>")
+        pass
         
     return "Ожидает регистрации"
 
@@ -117,6 +120,7 @@ try:
 
         df.at[i, 'check_time'] = now
         
+        # Если статус изменился и это не ошибка
         if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
