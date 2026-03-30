@@ -27,8 +27,7 @@ def get_meest_status(track):
             root = ET.fromstring(r.text)
             last = root.findall(".//items")[-1]
             dt = last.find('DateTimeAction').text or ""
-            city_node = last.find('City')
-            city = city_node.text if city_node is not None and city_node.text else ""
+            city = last.find('City').text if last.find('City') is not None and last.find('City').text else ""
             msg = last.find('ActionMessages').text or ""
             return f"🕒 {dt} | {city} | {msg}"
         return "📦 Ожидает регистрации"
@@ -56,24 +55,18 @@ try:
                 track = str(row['track_number']).strip()
                 if track == "-" or track == "": continue
                 
-                # Достаем комментарий для Telegram
                 comment = str(row['comment']).strip()
-                comment_text = f" ({comment})" if comment and comment != "-" and comment != "nan" else ""
+                comment_label = f" ({comment})" if comment and comment != "-" else ""
                 
                 new_status = get_meest_status(track)
                 current_status = str(row['status'])
                 
                 df.at[index, 'check_time'] = now
                 
-                clean_new = new_status.replace(" | None | ", " | ").replace(" |  | ", " | ")
-                clean_old = current_status.replace(" | None | ", " | ").replace(" |  | ", " | ").replace(" | УКРАЇНА None | ", " | ")
-                
-                if clean_new != clean_old and current_status != "-":
+                if new_status != current_status and not current_status.startswith("-"):
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
-                    if not current_status.startswith("-"):
-                        # Сообщение теперь содержит коммент
-                        send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}{comment_text}\n{new_status}")
+                    send_telegram(f"🔔 ОБНОВЛЕНИЕ\n📦 {track}{comment_label}\n{new_status}")
                 elif current_status == "-":
                     df.at[index, 'status'] = new_status
                     df.at[index, 'last_change'] = now
