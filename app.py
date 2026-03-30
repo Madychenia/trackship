@@ -12,25 +12,21 @@ REPO_NAME = st.secrets["REPO_NAME"]
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
+# Добавили "Коммент" в структуру базы
+emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
+tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
+
 def load_data():
     file_content = repo.get_contents("data.csv")
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
-    
-    # 1. Защита от прошлого сбоя: если в файле русские заголовки, возвращаем им английский вид
-    emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
     df = df.rename(columns=emergency_map)
-
-    # 2. Строго фиксируем технические колонки
-    tech_cols = ['track_number', 'carrier', 'status', 'last_change', 'check_time']
     for col in tech_cols:
         if col not in df.columns:
             df[col] = "-"
-            
     return df[tech_cols], file_content.sha
 
-def save_data(df, sha):
-    # Сохраняем ВСЕГДА только технические названия
-    repo.update_file("data.csv", "Update tracking data", df.to_csv(index=False), sha)
+def save_data(df, sha, commit_message="Update tracking data"):
+    repo.update_file("data.csv", commit_message, df.to_csv(index=False), sha)
 
 st.title("📦 TrackShip")
 
@@ -38,39 +34,60 @@ try:
     df, file_sha = load_data()
 except Exception as e:
     st.error(f"Ошибка загрузки: {e}")
-    df = pd.DataFrame(columns=['track_number', 'carrier', 'status', 'last_change', 'check_time'])
+    df = pd.DataFrame(columns=tech_cols)
 
-with st.expander("➕ Новый ордер"):
-    with st.form("add_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1: carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
-        with col2: track = st.text_input("Трек-номер")
-        if st.form_submit_button("Добавить"):
-            if track:
-                now = datetime.now().strftime("%d.%m %H:%M")
-                new_row = pd.DataFrame([{
-                    "track_number": track.strip(), 
-                    "carrier": carrier, 
-                    "status": "Ожидает регистрации", 
-                    "last_change": now, 
-                    "check_time": now
-                }])
-                df = pd.concat([df, new_row], ignore_index=True)
-                save_data(df, file_sha)
-                st.success("Добавлено!")
-                st.rerun()
+# Панель управления (Добавление и Удаление)
+col_add, col_del = st.columns(2)
+
+with col_add:
+    with st.expander("➕ Новый ордер"):
+        with st.form("add_form", clear_on_submit=True):
+            carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
+            track = st.text_input("Трек-номер")
+            comment = st.text_input("Комментарий (что едет?)")
+            
+            if st.form_submit_button("Добавить"):
+                if track:
+                    now = datetime.now().strftime("%d.%m %H:%M")
+                    new_row = pd.DataFrame([{
+                        "track_number": track.strip(), 
+                        "carrier": carrier, 
+                        "comment": comment.strip() if comment else "-",
+                        "status": "Ожидает регистрации", 
+                        "last_change": now, 
+                        "check_time": now
+                    }])
+                    df = pd.concat([df, new_row], ignore_index=True)
+                    save_data(df, file_sha, f"Add track: {track}")
+                    st.success("Добавлено!")
+                    st.rerun()
+
+with col_del:
+    if not df.empty:
+        with st.expander("🗑 Удалить ордер"):
+            with st.form("delete_form"):
+                # Используем индексы для безопасного удаления
+                options = df.index.tolist()
+                
+                # Формируем красивое отображение в выпадающем списке (Трек + Коммент)
+                def format_dropdown(idx):
+                    tr = df.loc[idx, 'track_number']
+                    cm = df.loc[idx, 'comment']
+                    return f"{tr} ({cm})" if cm and cm != "-" else tr
+                
+                selected_idx = st.selectbox("Выберите посылку для удаления", options, format_func=format_dropdown)
+                
+                if st.form_submit_button("Удалить безвозвратно"):
+                    track_to_delete = df.loc[selected_idx, 'track_number']
+                    df = df.drop(selected_idx)
+                    save_data(df, file_sha, f"Delete track: {track_to_delete}")
+                    st.success(f"Трек удален!")
+                    st.rerun()
 
 if not df.empty:
     st.write("### Твои посылки")
     
-    # 3. Переводим на русский ТОЛЬКО для визуала (не меняя исходник)
-    display_df = df.rename(columns={
-        'track_number': 'Трек',
-        'carrier': 'Оператор',
-        'status': 'Статус',
-        'last_change': 'Ласт',
-        'check_time': 'Чек'
-    })
+    display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
     
     st.dataframe(
         display_df, 
@@ -78,6 +95,7 @@ if not df.empty:
         hide_index=True,
         column_config={
             "Статус": st.column_config.TextColumn("Статус", width="large"),
+            "Коммент": st.column_config.TextColumn("Коммент", width="medium"),
             "Трек": st.column_config.TextColumn("Трек", width="medium"),
             "Оператор": st.column_config.TextColumn("Оператор", width="small"),
             "Ласт": st.column_config.TextColumn("Ласт", width="small"),
