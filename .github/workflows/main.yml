@@ -1,0 +1,24 @@
+name: Track Updater
+on:
+  schedule:
+    - cron: '0 */2 * * *' # Запуск каждые 2 часа
+  workflow_dispatch: # Позволяет запустить вручную кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install deps
+        run: pip install pandas PyGithub requests
+      - name: Run checker
+        env:
+          G_TOKEN: ${{ secrets.G_TOKEN }}
+          REPO_NAME: ${{ secrets.REPO_NAME }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python checker.py
