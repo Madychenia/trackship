@@ -16,18 +16,31 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Добавляем заголовки, чтобы сайт думал, что мы человек
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        url = f"https://t.meest-group.com/api/v1/track/{track}"
-        r = requests.get(url, headers=headers, timeout=10)
-        data = r.json()
-        # Извлекаем последний статус из списка событий
-        if 'events' in data and len(data['events']) > 0:
-            return data['events'][0]['status'] 
-        return "Информации нет"
+        # Используем адрес, который мы подсмотрели в Network
+        # Параметр chk часто бывает динамическим, но попробуем сначала так
+        url = f"https://t.meest-group.com/v1/track/{track}" 
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://ua.meest.com/',
+            'Accept': 'application/json'
+        }
+        
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200:
+            data = r.json()
+            # У Meest данные обычно лежат в списке событий
+            if 'events' in data and len(data['events']) > 0:
+                last_event = data['events'][0] # Самое верхнее событие
+                status_text = last_event.get('status', 'Нет данных')
+                city = last_event.get('city', '')
+                return f"{status_text} ({city})" if city else status_text
+            return "Трек зарегистрирован, но движений нет"
+        
+        return f"Ошибка сервера: {r.status_code}"
     except Exception as e:
-        return f"Ошибка Meest: {str(e)[:20]}"
-
+        return "Ошибка парсинга"
 def get_np_status(track):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
