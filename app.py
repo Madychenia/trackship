@@ -111,7 +111,16 @@ if not df.empty:
     st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
     
-    # CSS-хак для полного отключения кликабельности и выделения ячеек
-    st.markdown('<style>[data-testid="stDataFrame"] {pointer-events: none;}</style>', unsafe_allow_html=True)
+    # CSS-хак убрали. Теперь таблица "живая", текст можно выделять.
+    
+    # Выводим таблицу, намертво запретив редактирование всех колонок
+    st.dataframe(
+        display_df, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            col: st.column_config.Column(disabled=True) for col in display_df.columns
+        }
+    )
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
