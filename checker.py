@@ -16,31 +16,34 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Используем адрес, который мы подсмотрели в Network
-        # Параметр chk часто бывает динамическим, но попробуем сначала так
-        url = f"https://t.meest-group.com/v1/track/{track}" 
+        # Прямой URL из твоего скриншота Network
+        url = f"https://t.meest-group.com/api/v1/track/{track}"
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://ua.meest.com/',
-            'Accept': 'application/json'
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://ua.meest.com',
+            'Referer': 'https://ua.meest.com/'
         }
         
         r = requests.get(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
             data = r.json()
-            # У Meest данные обычно лежат в списке событий
-            if 'events' in data and len(data['events']) > 0:
-                last_event = data['events'][0] # Самое верхнее событие
-                status_text = last_event.get('status', 'Нет данных')
-                city = last_event.get('city', '')
-                return f"{status_text} ({city})" if city else status_text
-            return "Трек зарегистрирован, но движений нет"
+            # Пробуем достать статус. В новых API Миста он обычно лежит в 'config' или 'events'
+            if 'config' in data and 'status' in data['config']:
+                return data['config']['status']
+            elif 'events' in data and len(data['events']) > 0:
+                return data['events'][0].get('status', 'Статус не определен')
+            
+            return "Данные получены, но статус не найден"
         
-        return f"Ошибка сервера: {r.status_code}"
+        return f"Сайт ответил: {r.status_code}"
     except Exception as e:
-        return "Ошибка парсинга"
+        # Выводим конкретную ошибку в телеграм для отладки
+        return f"Ошибка: {str(e)[:30]}"
+
+
 def get_np_status(track):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
