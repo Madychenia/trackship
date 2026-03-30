@@ -20,20 +20,30 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Используем мобильный API эндпоинт, он стабильнее
-        url = f"https://t.meest-group.com/api/v1/track/{track}"
-        headers = {
-            'User-Agent': 'Meest/1.0 (Android 11; Build/RP1A.200720.011)',
-            'Accept': 'application/json',
-            'Host': 't.meest-group.com'
+        session = requests.Session()
+        # Шаг 1: Имитируем заход человека на страницу отслеживания
+        main_url = "https://ua.meest.com/parcel-track"
+        headers_base = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
+        session.get(main_url, headers=headers_base, timeout=10)
+
+        # Шаг 2: Запрос к API с поддельным Referer и Origin
+        api_url = f"https://t.meest-group.com/api/v1/track/{track}"
+        api_headers = {
+            **headers_base,
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://ua.meest.com',
+            'Referer': 'https://ua.meest.com/',
+            'X-Requested-With': 'XMLHttpRequest'
         }
         
-        r = requests.get(url, headers=headers, timeout=15)
+        r = session.get(api_url, headers=api_headers, timeout=15)
         
         if r.status_code == 200:
             data = r.json()
-            
-            # Проверяем наличие событий (самое новое — первое в списке)
+            # Пытаемся вытянуть статус из событий (events)
             events = data.get('events', [])
             if isinstance(events, list) and len(events) > 0:
                 last = events[0]
@@ -41,16 +51,17 @@ def get_meest_status(track):
                 city = last.get('city', '')
                 return f"{status} ({city})" if city else status
             
-            # Если событий нет, смотрим основной статус в конфиге
-            if 'config' in data and data['config'].get('status'):
-                return data['config']['status']
+            # Если событий нет, берем общий конфиг
+            config_status = data.get('config', {}).get('status')
+            if config_status:
+                return config_status
                 
-            return "Статус уточняется"
-            
-        return f"Meest: Ошибка {r.status_code}"
+            return "Статус в обработке"
+        
+        return f"Meest: Код {r.status_code}"
     except Exception as e:
-        return "Ошибка парсинга Meest"
-
+        # Если JSON не парсится, значит Meest выдал HTML с блоком
+        return "Ошибка данных (Meest блокирует запрос)"
 def get_np_status(track):
     # Оставляем заглушку, пока чиним Мист
     return "Проверка НП пока отключена"
