@@ -39,16 +39,16 @@ try:
 except:
     df = pd.DataFrame(columns=tech_cols)
 
-# Верхняя панель с кнопками
-col_btn1, col_btn2 = st.columns([1, 5])
-with col_btn1:
-    if st.button("🔄 Обновить сейчас"):
+if st.button("🔄 Обновить сейчас"):
+    if df.empty:
+        st.warning("Список треков пуст, нечего обновлять.")
+    else:
         try:
             trigger_action()
             st.info("Запрос отправлен в GitHub Actions. Подожди 1-2 минуты.")
         except Exception as e:
             st.error(f"Ошибка запуска: {e}")
-
+            
 # Формы добавления и удаления
 col_add, col_del = st.columns(2)
 with col_add:
