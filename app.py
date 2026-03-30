@@ -8,7 +8,7 @@ import io
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
-# Секреты (теперь строго G_TOKEN)
+# Секреты
 G_TOKEN = st.secrets["G_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
 
@@ -41,16 +41,16 @@ with st.expander("➕ Добавить новую посылку", expanded=Fals
             st.rerun()
 
 if st.button("🔄 Обновить статусы"):
-    repo.get_workflow("main.yml").create_dispatch(repo.default_branch)
-    st.info("Запрос отправлен в GitHub Actions...")
+    # ИСПРАВЛЕНО: теперь стучимся именно в check.yml
+    workflow = repo.get_workflow("check.yml") 
+    workflow.create_dispatch(repo.default_branch)
+    st.info("Запрос отправлен в GitHub Actions (файл check.yml)...")
 
-# --- ТАБЛИЦА (БЕЗ ИНДЕКСОВ) ---
+# --- ТАБЛИЦА ---
 df, file_sha = load_data()
-# Переименовываем для красоты
 disp_df = df.rename(columns={
     'track_number': 'Трек', 'carrier': 'Оператор', 'comment': 'Коммент', 
     'status': 'Статус', 'last_change': 'Ласт', 'check_time': 'Чек'
 })
 
-# Скрываем индекс (колонку 0, 1, 2)
 st.dataframe(disp_df, use_container_width=True, hide_index=True)
