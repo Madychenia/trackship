@@ -47,9 +47,15 @@ with st.expander("➕ Новый ордер"):
             st.success("Сохранено в GitHub!")
             st.rerun()
 
-# Отображение
-st.subheader("Список треков")
+# Отображение таблицы с кликабельными ссылками
 if not df.empty:
+    # Создаем ссылки для быстрого перехода
+    def make_link(row):
+        if row['carrier'] == "Мист Экспресс":
+            return f"https://ua.meest.com/parcel-track?shipping_number={row['track_number']}"
+        else:
+            return f"https://novaposhtaglobal.ua/track/?query={row['track_number']}"
+
+    df['Ссылка'] = df.apply(make_link, axis=1)
+    st.write("### Твои посылки")
     st.dataframe(df, use_container_width=True)
-else:
-    st.info("Треков пока нет.")
