@@ -12,7 +12,6 @@ REPO_NAME = st.secrets["REPO_NAME"]
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-# Добавили "Коммент" в структуру базы
 emergency_map = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
 tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
 
@@ -36,17 +35,16 @@ except Exception as e:
     st.error(f"Ошибка загрузки: {e}")
     df = pd.DataFrame(columns=tech_cols)
 
-# Панель управления (Добавление и Удаление)
 col_add, col_del = st.columns(2)
 
 with col_add:
-    with st.expander("➕ Новый ордер"):
+    with st.expander("➕ Добавить новую посылку"):
         with st.form("add_form", clear_on_submit=True):
             carrier = st.selectbox("Логист", ["Мист Экспресс", "Новая почта"])
             track = st.text_input("Трек-номер")
-            comment = st.text_input("Комментарий (что едет?)")
+            comment = st.text_input("Что внутри? (Комментарий)")
             
-            if st.form_submit_button("Добавить"):
+            if st.form_submit_button("Сохранить"):
                 if track:
                     now = datetime.now().strftime("%d.%m %H:%M")
                     new_row = pd.DataFrame([{
@@ -58,37 +56,43 @@ with col_add:
                         "check_time": now
                     }])
                     df = pd.concat([df, new_row], ignore_index=True)
-                    save_data(df, file_sha, f"Add track: {track}")
+                    save_data(df, file_sha, f"Add: {track}")
                     st.success("Добавлено!")
                     st.rerun()
 
 with col_del:
     if not df.empty:
-        with st.expander("🗑 Удалить ордер"):
+        with st.expander("🗑 Удалить посылку"):
             with st.form("delete_form"):
-                # Используем индексы для безопасного удаления
+                # Создаем список индексов для выбора
                 options = df.index.tolist()
                 
-                # Формируем красивое отображение в выпадающем списке (Трек + Коммент)
-                def format_dropdown(idx):
-                    tr = df.loc[idx, 'track_number']
-                    cm = df.loc[idx, 'comment']
-                    return f"{tr} ({cm})" if cm and cm != "-" else tr
+                # Функция красивого отображения: Сначала Коммент, потом Трек
+                def format_func(idx):
+                    row = df.loc[idx]
+                    comment = str(row['comment'])
+                    track = str(row['track_number'])
+                    if comment and comment != "-":
+                        return f"📝 {comment}  [{track}]"
+                    return f"📦 {track}"
                 
-                selected_idx = st.selectbox("Выберите посылку для удаления", options, format_func=format_dropdown)
+                selected_idx = st.selectbox(
+                    "Поиск по названию или треку", 
+                    options, 
+                    format_func=format_func,
+                    help="Начни вводить название товара для быстрого поиска"
+                )
                 
-                if st.form_submit_button("Удалить безвозвратно"):
-                    track_to_delete = df.loc[selected_idx, 'track_number']
+                if st.form_submit_button("Удалить выбранное"):
+                    track_val = df.loc[selected_idx, 'track_number']
                     df = df.drop(selected_idx)
-                    save_data(df, file_sha, f"Delete track: {track_to_delete}")
-                    st.success(f"Трек удален!")
+                    save_data(df, file_sha, f"Delete: {track_val}")
+                    st.success("Удалено!")
                     st.rerun()
 
 if not df.empty:
-    st.write("### Твои посылки")
-    
+    st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
-    
     st.dataframe(
         display_df, 
         use_container_width=True, 
@@ -97,8 +101,5 @@ if not df.empty:
             "Статус": st.column_config.TextColumn("Статус", width="large"),
             "Коммент": st.column_config.TextColumn("Коммент", width="medium"),
             "Трек": st.column_config.TextColumn("Трек", width="medium"),
-            "Оператор": st.column_config.TextColumn("Оператор", width="small"),
-            "Ласт": st.column_config.TextColumn("Ласт", width="small"),
-            "Чек": st.column_config.TextColumn("Чек", width="small")
         }
     )
