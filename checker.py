@@ -24,16 +24,17 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
-        import hashlib
-        import requests
-        
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
         
-        # ВОЗВРАТ К ИСТОКАМ: Самый простой GET-запрос без заголовков. 
-        # Именно он стабильно работал на GitHub Actions.
-        r = requests.get(url, timeout=15)
+        headers = {
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 
+            'x-requested-with': 'XMLHttpRequest'
+        }
+        
+        # ТОЧНАЯ КОПИЯ С ТВОЕГО СКРИНШОТА
+        r = requests.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
@@ -41,7 +42,7 @@ def get_meest_status(track):
             if items:
                 last = items[-1]
                 
-                # Безопасное чтение XML, чтобы код не крашился при пустых значениях
+                # Безопасное чтение
                 dt_el = last.find('DateTimeAction')
                 dt = dt_el.text if dt_el is not None else ""
                 
@@ -52,9 +53,12 @@ def get_meest_status(track):
                 msg = msg_el.text if msg_el is not None else ""
                 
                 return f"🕒 {dt} | {city} | {msg}".strip()
-                
+        else:
+            # ЕСЛИ МИСТ ВЫДАЕТ ОШИБКУ, ОНА ПРИЛЕТИТ ТЕБЕ В ТЕЛЕГРАМ
+            send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:200]}</code>")
+            
     except Exception as e:
-        print(f"Meest Error: {e}")
+        send_telegram(f"⚠️ <b>КРИТ. ОШИБКА MEEST ({track}):</b>\n<code>{e}</code>")
         
     return "Ожидает регистрации"
 
@@ -87,7 +91,7 @@ def get_np_global_status(track):
             return f"🚚 {event_date} | {status_text}"
             
     except Exception as e:
-        print(f"NP Error: {e}")
+        pass
     return "Номер не найден"
 
 try:
@@ -113,7 +117,7 @@ try:
 
         df.at[i, 'check_time'] = now
         
-        if new_status != old_status and "Номер не найден" not in new_status and "Ожидает регистрации" not in new_status:
+        if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
             
@@ -125,7 +129,6 @@ try:
         time.sleep(3)
 
     repo.update_file(file.path, f"Pulse update {now}", df.to_csv(index=False), file.sha)
-    print(f"Update completed at {now}")
 
     if updated_any:
         report = "📋 <b>АКТУАЛЬНЫЙ СПИСОК ПОСЫЛОК:</b>\n" + "—" * 20 + "\n"
@@ -138,4 +141,4 @@ try:
         send_telegram(report)
 
 except Exception as e:
-    print(f"Critical Global Error: {e}")
+    send_telegram(f"⚠️ <b>Критическая ошибка скрипта:</b>\n<code>{e}</code>")
