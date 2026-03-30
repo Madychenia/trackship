@@ -16,6 +16,7 @@ GITHUB_TOKEN = os.getenv("G_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_ID = os.getenv("TG_CHAT_ID")
+NP_TOKEN = os.getenv("NP_TOKEN") # Твой новый ключ
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
@@ -43,8 +44,10 @@ def get_meest_status(track):
 
 def get_np_status(track):
     try:
+        if not NP_TOKEN: return "⚠️ Нет API ключа НП"
         url = "https://api.novaposhta.ua/v2.0/json/"
         data = {
+            "apiKey": NP_TOKEN,
             "modelName": "TrackingDocument",
             "calledMethod": "getStatusDocuments",
             "methodProperties": {
@@ -52,16 +55,13 @@ def get_np_status(track):
             }
         }
         r = requests.post(url, json=data, timeout=15)
-        if r.status_code == 200:
-            res = r.json()
-            if res['success'] and res['data']:
-                info = res['data'][0]
-                status = info.get('Status', 'Не найдено')
-                warehouse = info.get('WarehouseStation', '')
-                # Если посылку еще не создали или номер неверный
-                if status == "Номер не найден":
-                    return "📦 Ожидает регистрации"
-                return f"🚚 {status} | {warehouse}"
+        res = r.json()
+        if res.get('success') and res.get('data'):
+            info = res['data'][0]
+            status = info.get('Status', 'Не найдено')
+            city = info.get('CityRecipient', '')
+            if status == "Номер не найден": return "📦 Ожидает регистрации"
+            return f"🚚 {status} | {city}"
         return "📦 Номер не найден"
     except: return "⚠️ Ошибка НП"
 
@@ -72,6 +72,7 @@ try:
     df = pd.read_csv(io.StringIO(file_content.decoded_content.decode('utf-8')))
 
     tech_cols = ['track_number', 'carrier', 'comment', 'status', 'last_change', 'check_time']
+    # Приведение названий колонок к единому стандарту
     mapping = {'Трек': 'track_number', 'Оператор': 'carrier', 'Коммент': 'comment', 'Статус': 'status', 'Ласт': 'last_change', 'Чек': 'check_time'}
     df = df.rename(columns=mapping)
     for col in tech_cols:
@@ -86,13 +87,11 @@ try:
             carrier = row['carrier']
             current_status = str(row['status'])
             
-            # Логика выбора оператора
             if carrier == "Мист Экспресс":
                 new_status = get_meest_status(track)
             elif carrier == "Новая почта":
                 new_status = get_np_status(track)
-            else:
-                continue
+            else: continue
                 
             df.at[index, 'check_time'] = now
             
@@ -103,7 +102,7 @@ try:
                 send_telegram(f"🔔 ОБНОВЛЕНИЕ ({carrier})\n📦 {track}{comment}\n{new_status}")
                 updated_any = True
             
-            time.sleep(1) # НП работает быстро, 1 сек хватит
+            time.sleep(1)
 
         repo.update_file("data.csv", f"Pulse: {now}", df[tech_cols].to_csv(index=False), file_content.sha)
 
