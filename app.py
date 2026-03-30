@@ -23,17 +23,17 @@ def load_data():
     # Переименовываем колонки для интерфейса
     df = df.rename(columns={
         'track_number': 'Трек',
-        'carrier': 'Керри',
+        'carrier': 'Оператор',
         'status': 'Статус',
         'last_check': 'Ласт'
     })
     return df, file_content.sha
 
 def save_data(df, sha):
-    # Перед сохранением возвращаем технические названия, чтобы checker.py их понимал
+    # Возвращаем технические названия перед сохранением
     df_save = df.rename(columns={
         'Трек': 'track_number',
-        'Керри': 'carrier',
+        'Оператор': 'carrier',
         'Статус': 'status',
         'Ласт': 'last_check'
     })
@@ -47,7 +47,7 @@ try:
     df, file_sha = load_data()
 except:
     st.error("Ошибка загрузки data.csv")
-    df = pd.DataFrame(columns=['Трек', 'Керри', 'Статус', 'Ласт'])
+    df = pd.DataFrame(columns=['Трек', 'Оператор', 'Статус', 'Ласт'])
 
 # Форма добавления
 with st.expander("➕ Новый ордер"):
@@ -58,7 +58,7 @@ with st.expander("➕ Новый ордер"):
             if track:
                 new_row = pd.DataFrame([{
                     "Трек": track.strip(),
-                    "Керри": carrier,
+                    "Оператор": carrier,
                     "Статус": "Ожидает регистрации",
                     "Ласт": datetime.now().strftime("%d.%m %H:%M")
                 }])
@@ -72,7 +72,12 @@ with st.expander("➕ Новый ордер"):
 # Отображение таблицы
 if not df.empty:
     st.write("### Твои посылки")
-    # hide_index убирает левую колонку с цифрами
-    st.table(df) 
+    
+    # Используем st.dataframe с отключенным индексом и без возможности редактирования
+    st.dataframe(
+        df, 
+        use_container_width=True, 
+        hide_index=True # УБИРАЕТ левую колонку с цифрами
+    )
 else:
     st.info("Список посылок пуст")
