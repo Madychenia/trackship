@@ -1,8 +1,9 @@
 def get_meest_status(track):
     try:
         session = requests.Session()
-        # Тот самый ключ из твоего cURL, попробуем использовать его как основной
-        chk = "8645141e4284290f547d92f1fa241731"
+        # ВНИМАНИЕ: Здесь chk всё еще старый. Жду ваш cURL, чтобы это исправить!
+        chk = "8645141e4284290f547d92f1fa241731" 
+        
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
         headers = {
@@ -14,7 +15,6 @@ def get_meest_status(track):
             'x-requested-with': 'XMLHttpRequest'
         }
         
-        # POST запрос с пустым телом, как в браузере
         r = session.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
@@ -22,29 +22,20 @@ def get_meest_status(track):
             items = root.findall(".//items")
             
             if items:
-                # Берем самый последний статус (последний в списке XML)
-                last_item = items[-1]
+                # Берем самый свежий статус (последний в XML списке)
+                last = items[-1]
                 
-                # Извлекаем все нужные поля
-                raw_date = last_item.find("DateTimeAction").text # 2026-03-20 19:55:48
-                msg = last_item.find("ActionMessages").text      # Відправлено з Нью-Джерсі, США
-                country = last_item.find("Country").text         # США
-                city = last_item.find("City").text               # Порт-Рідінг
+                # Собираем данные как на сайте
+                dt_raw = last.find("DateTimeAction").text   # Дата/Час
+                country = last.find("Country").text        # Країна
+                city = last.find("City").text              # Місто
+                msg = last.find("ActionMessages").text     # Детальне повідомлення
                 
-                # Форматируем дату (убираем секунды и год для краткости, если нужно)
-                # Из "2026-03-20 19:55:48" делаем "20.03 19:55"
-                try:
-                    dt = datetime.strptime(raw_date, "%Y-%m-%d %H:%M:%S")
-                    pretty_date = dt.strftime("%d.%m %H:%M")
-                except:
-                    pretty_date = raw_date
-
-                # Собираем финальную строку "один в один"
-                full_status = f"{pretty_date} — {msg} ({country}, {city})"
-                return full_status
+                # Форматируем в одну строку
+                return f"{dt_raw} | {country}, {city} | {msg}"
             
-            return "Данные о посылке еще не поступили"
+            return "Статус: Данные в обработке"
             
-        return f"Meest: Ошибка {r.status_code}"
+        return f"Meest: Код {r.status_code} (Нужен новый chk)"
     except Exception as e:
-        return f"Ошибка обработки: {str(e)}"
+        return f"Ошибка: {str(e)}"
