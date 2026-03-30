@@ -16,22 +16,29 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Упрощенный запрос к публичному API Meest
+        # Добавляем заголовки, чтобы сайт думал, что мы человек
+        headers = {'User-Agent': 'Mozilla/5.0'}
         url = f"https://t.meest-group.com/api/v1/track/{track}"
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, headers=headers, timeout=10)
         data = r.json()
-        return data['config']['status'] # Это пример, путь в JSON может меняться
-    except:
-        return "Ошибка парсинга Meest"
+        # Извлекаем последний статус из списка событий
+        if 'events' in data and len(data['events']) > 0:
+            return data['events'][0]['status'] 
+        return "Информации нет"
+    except Exception as e:
+        return f"Ошибка Meest: {str(e)[:20]}"
 
 def get_np_status(track):
     try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
         url = f"https://tracking.novaposhta.ua/v2/tracking/ru/{track}"
-        r = requests.get(url, timeout=10)
-        # У Новой Почты обычно статус лежит в data[0]['status']
-        return r.json()['data'][0]['status']
-    except:
-        return "Ошибка парсинга НП"
+        r = requests.get(url, headers=headers, timeout=10)
+        data = r.json()
+        if data.get('data'):
+            return data['data'][0]['last_status_ru']
+        return "Не найдено"
+    except Exception as e:
+        return f"Ошибка НП: {str(e)[:20]}"
 
 # Основная логика обновления
 g = Github(GITHUB_TOKEN)
