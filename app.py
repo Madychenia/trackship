@@ -1,3 +1,14 @@
+import pytz # Нужно добавить в начало файла к импортам
+
+# ... (весь твой код до момента получения времени) ...
+
+# Заменяем получение времени на киевское
+kiev_tz = pytz.timezone('Europe/Kiev')
+now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+
+# ... (далее код без изменений) ...
+
+
 import streamlit as st
 import pandas as pd
 from github import Github
