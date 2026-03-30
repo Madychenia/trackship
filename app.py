@@ -91,4 +91,9 @@ with col_del:
 if not df.empty:
     st.write("### Активные отслеживания")
     display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(
+    display_df, 
+    use_container_width=True, 
+    hide_index=True,
+    column_config={col: st.column_config.Column(disabled=True) for col in display_df.columns}
+)
