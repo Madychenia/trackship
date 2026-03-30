@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 from github import Github
-from datetime import datetime
+import datetime
 import pytz
 import io
 
 st.set_page_config(page_title="TrackShip", layout="wide")
 kiev_tz = pytz.timezone('Europe/Kiev')
 
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+GITHUB_TOKEN = st.secrets["G_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
 
 g = Github(GITHUB_TOKEN)
@@ -29,60 +29,37 @@ def save_data(df, sha, msg="Update"):
     repo.update_file("data.csv", msg, df.to_csv(index=False), sha)
 
 def trigger_action():
-    workflow = repo.get_workflow("check.yml") 
+    workflow = repo.get_workflow("main.yml") 
     workflow.create_dispatch(repo.default_branch)
 
 st.title("📦 TrackShip")
 
-try:
-    df, file_sha = load_data()
-except:
-    df = pd.DataFrame(columns=tech_cols)
+df, file_sha = load_data()
 
-if st.button("🔄 Обновить сейчас"):
-    if df.empty:
-        st.warning("Список треков пуст.")
-    else:
-        try:
-            trigger_action()
-            st.info("Запрос отправлен. Подождите 1-2 минуты.")
-        except Exception as e:
-            st.error(f"Ошибка запуска: {e}")
+col1, col2 = st.columns([1, 5])
+with col1:
+    if st.button("🔄 Обновить сейчас"):
+        trigger_action()
+        st.info("Запрос отправлен...")
 
-col_add, col_del = st.columns(2)
-with col_add:
-    with st.expander("➕ Добавить новую посылку"):
-        with st.form("add_form", clear_on_submit=True):
-            # Важно: названия должны быть один в один как в checker.py
-            carrier = st.selectbox("Логист", ["Новая почта", "Мист Экспресс"])
-            track = st.text_input("Трек-номер")
-            comment = st.text_input("Комментарий")
-            if st.form_submit_button("Сохранить"):
-                if track:
-                    now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
-                    new_row = pd.DataFrame([{"track_number": track.strip(), "carrier": carrier, "comment": comment.strip() or "-", "status": "Ожидает регистрации", "last_change": now, "check_time": now}])
-                    df = pd.concat([df, new_row], ignore_index=True)
-                    save_data(df, file_sha, f"Add: {track}")
-                    st.success("Готово!")
-                    st.rerun()
+# Статичный вывод таблицы (убирает клики и красные рамки)
+st.table(df.rename(columns={v: k for k, v in emergency_map.items()}))
 
-with col_del:
-    if not df.empty:
-        with st.expander("🗑 Удалить посылку"):
-            with st.form("delete_form"):
-                options = df.index.tolist()
-                def format_func(idx):
-                    row = df.loc[idx]
-                    return f"📝 {row['comment']} [{row['track_number']}]" if row['comment'] != "-" else f"📦 {row['track_number']}"
-                selected_idx = st.selectbox("Что удаляем?", options, format_func=format_func)
-                if st.form_submit_button("Удалить"):
-                    track_val = df.loc[selected_idx, 'track_number']
-                    df = df.drop(selected_idx)
-                    save_data(df, file_sha, f"Delete: {track_val}")
-                    st.success("Удалено!")
-                    st.rerun()
-
-if not df.empty:
-    st.write("### Таблица заказов")
-    display_df = df.rename(columns={v: k for k, v in emergency_map.items()})
-    st.table(display_df)
+with st.expander("➕ Добавить новую посылку"):
+    with st.form("add_form", clear_on_submit=True):
+        carrier = st.selectbox("Логист", ["Новая почта", "Мист Экспресс"])
+        track = st.text_input("Трек-номер")
+        comment = st.text_input("Комментарий")
+        if st.form_submit_button("Сохранить"):
+            now = datetime.datetime.now(kiev_tz).strftime("%d.%m %H:%M")
+            new_row = pd.DataFrame([{
+                "track_number": track.strip(), 
+                "carrier": carrier, 
+                "comment": comment.strip() or "-", 
+                "status": "Ожидает регистрации", 
+                "last_change": now, 
+                "check_time": now
+            }])
+            df = pd.concat([df, new_row], ignore_index=True)
+            save_data(df, file_sha, f"Add: {track}")
+            st.rerun()
