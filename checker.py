@@ -31,21 +31,27 @@ def get_meest_status(track):
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
         
-        # Абсолютно голый запрос без headers, как у тебя и было изначально
-        r = requests.get(url, timeout=15)
+        # Заголовки точь-в-точь как на твоем скрине
+        headers = {
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 
+            'x-requested-with': 'XMLHttpRequest'
+        }
         
-        if "<items>" in r.text:
+        # ИМЕННО POST-запрос, как было у тебя
+        r = requests.post(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             last = root.findall(".//items")[-1]
             dt = last.find('DateTimeAction').text or ""
             city = last.find('City').text if last.find('City') is not None else ""
             msg = last.find('ActionMessages').text or ""
             return f"🕒 {dt} | {city} | {msg}".strip()
+            
+        return "Ожидает регистрации"
     except Exception as e:
         print(f"Meest Error: {e}")
-        pass
-        
-    return "Ожидает регистрации"
+        return "⚠️ Ошибка Meest"
 
 def get_np_global_status(track):
     try:
