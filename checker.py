@@ -25,18 +25,38 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
+        import hashlib
+        import requests
+
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&chk={chk}"
         
-        # Возвращаем заголовки, имитирующие браузер, и делаем POST запрос (как у тебя работало изначально)
+        url = f"https://t.meest-group.com/get.php"
+        # Передаем параметры правильно, как ожидает сервер
+        params = {
+            'what': 'tracking',
+            'test': '',
+            'number': track,
+            'lang': 'uk',
+            'chk': chk
+        }
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'X-Requested-With': 'XMLHttpRequest'
+            'Accept': '*/*',
+            'Accept-Language': 'uk,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Referer': 'https://t.meest-group.com/tracking',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Connection': 'keep-alive'
         }
-        r = requests.post(url, headers=headers, timeout=15)
         
-        if "<items>" in r.text:
+        # Делаем GET запрос с правильными параметрами и заголовками
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        
+        # ОТЛАДКА: Выводим статус код и кусок ответа в консоль GitHub Actions
+        print(f"Meest Debug [{track}]: Status {r.status_code}, Response start: {r.text[:100]}")
+        
+        if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
             if items:
@@ -45,11 +65,14 @@ def get_meest_status(track):
                 city = last.find('City').text if last.find('City') is not None else ""
                 msg = last.find('ActionMessages').text or ""
                 return f"🕒 {dt} | {city} | {msg}".strip()
+        else:
+             print(f"Meest Fail: No <items> found or bad status.")
+             
     except Exception as e:
-        print(f"Meest Error for {track}: {e}")
-        pass
+        print(f"Meest Critical Error for {track}: {e}")
+        
     return "Ожидает регистрации"
-
+    
 def get_np_global_status(track):
     """Парсинг НП Глобал с использованием сессии и имитации Mac"""
     try:
