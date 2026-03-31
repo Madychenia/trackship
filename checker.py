@@ -24,15 +24,25 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
+        import hashlib
+        import requests
+        
+        # Создаем сессию, которая будет хранить Cookies
+        s = requests.Session()
         
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         
-        # Обновленный URL с параметром referer, как в твоем cURL
+        # Сначала просто "заходим" на сайт, чтобы получить куки
+        base_headers = {
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
+        }
+        s.get("https://us.meest.com/ru/parcel-track", headers=base_headers, timeout=10)
+        
+        # Теперь стучимся к API с куками сессии
         url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
         
-        # Полная маскировка под твой браузер из cURL-запроса
-        headers = {
+        api_headers = {
             'accept': 'application/xml, text/xml, */*; q=0.01',
             'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
             'content-length': '0',
@@ -48,29 +58,26 @@ def get_meest_status(track):
             'x-requested-with': 'XMLHttpRequest'
         }
         
-        r = requests.post(url, headers=headers, timeout=15)
+        r = s.post(url, headers=api_headers, timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
             if items:
                 last = items[-1]
-                
                 dt_el = last.find('DateTimeAction')
                 dt = dt_el.text if dt_el is not None else ""
-                
                 city_el = last.find('City')
                 city = city_el.text if city_el is not None else ""
-                
                 msg_el = last.find('ActionMessages')
                 msg = msg_el.text if msg_el is not None else ""
-                
                 return f"🕒 {dt} | {city} | {msg}".strip()
         else:
-            send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:100]}</code>")
+            # Давай увидим, что именно не нравится серверу (может там Cloudflare?)
+            send_telegram(f"⚠️ <b>MEEST ({track})</b>\nHTTP {r.status_code}\nОтвет: <code>{r.text[:50]}</code>")
             
     except Exception as e:
-        pass
+        print(f"Meest Error: {e}")
         
     return "Ожидает регистрации"
 
