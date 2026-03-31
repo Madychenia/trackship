@@ -22,43 +22,49 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Идем через публичную страницу, раз она нам открылась (HTML 200)
+        # Используем публичную страницу, которая у нас открывается (код 200)
         url = f"https://t.meest-group.com/int/ru/{track}"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
         }
         
-        r = requests.get(url, headers=headers, timeout=15)
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            return "Ожидает регистрации"
+
+        html = r.text
+        # Очищаем HTML от лишних пробелов и переносов для удобства поиска
+        content = re.sub(r'\s+', ' ', html)
+
+        # Ищем таблицу с результатами. Находим все даты в формате ГГГГ-ММ-ДД ЧЧ:ММ:СС
+        dates = re.findall(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', content)
         
-        if r.status_code == 200:
-            html = r.text
-            # Ищем все даты (2026-03-20 19:55:48)
-            dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', html)
+        if dates:
+            # Берем самую свежую дату (она обычно последняя в списке)
+            last_date = dates[-1]
             
-            if dates:
-                last_dt = dates[-1]
-                # Берем кусок текста после этой даты
-                content_after = html.split(last_dt)[-1].split('</tr>')[0] # Ограничиваем одной строкой таблицы
-                
-                # Вычищаем все HTML теги и лишние пробелы
-                clean_text = re.sub('<[^<]+?>', '|', content_after)
-                parts = [p.strip() for p in clean_text.split('|') if p.strip() and len(p.strip()) > 1]
-                
-                # По логике сайта: [Страна, Город, К-во мест, Статус]
-                if len(parts) >= 4:
-                    city = parts[1]
-                    status_msg = parts[3]
-                    return f"🕒 {last_dt} | {city} | {status_msg}"
-                elif len(parts) >= 1:
-                    return f"🕒 {last_dt} | {parts[-1]}"
+            # Извлекаем кусок текста после этой даты до конца строки таблицы </tr>
+            # Верстка Meest: <tr> <td>Дата</td> <td>Страна</td> <td>Город</td> <td>Места</td> <td>Статус</td> </tr>
+            after_date = content.split(last_date)[-1].split('</tr>')[0]
             
-            # Если дат нет, возможно посылка еще не в системе
-            if "Результат поиска" in html and "не найдено" in html:
-                return "Ожидает регистрации"
-                
+            # Вытаскиваем всё, что находится внутри <td>...</td>
+            cells = re.findall(r'<td.*?>(.*?)</td>', after_date)
+            
+            if len(cells) >= 4:
+                city = re.sub('<[^<]+?>', '', cells[1]).strip() # Город
+                status = re.sub('<[^<]+?>', '', cells[3]).strip() # Детальное сообщение
+                return f"🕒 {last_date} | {city} | {status}"
+            elif len(cells) > 0:
+                # Если структура изменилась, берем последний найденный текст в ячейке
+                last_info = re.sub('<[^<]+?>', '', cells[-1]).strip()
+                return f"🕒 {last_date} | {last_info}"
+
+        if "не найдено" in html or "Result is empty" in html:
+            return "Ожидает регистрации"
+
     except Exception as e:
-        print(f"Meest Error: {e}")
-        
+        print(f"Meest Parser Error: {e}")
+    
     return "Ожидает регистрации"
 
 def get_np_global_status(track):
@@ -67,11 +73,13 @@ def get_np_global_status(track):
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
         res = s.get("https://novaposhtaglobal.ua/track/", headers=headers, timeout=10)
         token = re.search(r'token["\']\s*:\s*["\']([^"\']+)["\']', res.text).group(1)
+        
         payload = {'token': token, 'num': track.strip(), 'lang': 'uk'}
         r = s.post("https://personal.novaposhtaglobal.ua/tracking.php", data=payload, headers=headers, timeout=15)
         data = r.json()
+        
         if 'historyStatus' in data and len(data['historyStatus']) > 0:
-            last = data['historyStatus'][0]
+            last = data['historyStatus'][0] 
             return f"🚚 {last.get('date', '')} | {last.get('status', '')}"
     except: pass
     return "Номер не найден"
@@ -99,7 +107,7 @@ try:
 
         df.at[i, 'check_time'] = now
         
-        # ЕСЛИ СТАТУС ИЗМЕНИЛСЯ (был "Ожидает регистрации", а стал реальным)
+        # Обновляем только если статус действительно изменился и это не ошибка
         if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
@@ -111,19 +119,18 @@ try:
         
         time.sleep(2)
 
-    # Сохраняем обновленный файл
+    # Сохраняем результат в GitHub
     repo.update_file(file.path, f"Pulse update {now}", df.to_csv(index=False), file.sha)
 
-    # Если было хоть одно обновление - шлем финальный отчет
+    # Если были обновления — отправляем сводный отчет
     if updated_any:
         report = "📋 <b>АКТУАЛЬНЫЙ СПИСОК ПОСЫЛОК:</b>\n" + "—" * 20 + "\n"
         for _, row in df.iterrows():
             trk = row['track_number']
-            crr = "🚛" if "Новая" in str(row['carrier']) else "📦"
             cmt = f" ({row['comment']})" if str(row['comment']) != "-" else ""
             st_clean = str(row['status']).split('|')[-1].strip()
-            report += f"{crr} <code>{trk}</code>{cmt}\n└ {st_clean}\n\n"
+            report += f"📦 <code>{trk}</code>{cmt}\n└ {st_clean}\n\n"
         send_telegram(report)
 
 except Exception as e:
-    send_telegram(f"⚠️ <b>Крит. ошибка скрипта:</b> {e}")
+    send_telegram(f"⚠️ <b>Крит. ошибка скрипта:</b>\n<code>{e}</code>")
