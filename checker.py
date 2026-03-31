@@ -27,54 +27,56 @@ def get_meest_status(track):
         import hashlib
         import requests
         
-        # Создаем сессию, которая будет хранить Cookies
-        s = requests.Session()
-        
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         
-        # Сначала просто "заходим" на сайт, чтобы получить куки
-        base_headers = {
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
-        }
-        s.get("https://us.meest.com/ru/parcel-track", headers=base_headers, timeout=10)
-        
-        # Теперь стучимся к API с куками сессии
-        url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
-        
-        api_headers = {
-            'accept': 'application/xml, text/xml, */*; q=0.01',
-            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-            'content-length': '0',
-            'origin': 'https://t.meest-group.com',
-            'referer': 'https://t.meest-group.com/t/ru/us/',
-            'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"macOS"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-            'x-requested-with': 'XMLHttpRequest'
+        # Используем обновленный URL с зеркала, которое ты нашел
+        url = f"https://t.meest-group.com/get.php"
+        params = {
+            'what': 'tracking',
+            'number': track,
+            'lang': 'ru',
+            'ext_track': '',
+            'chk': chk,
+            'referer': 'https://us.meest.com/' # Критически важный параметр
         }
         
-        r = s.post(url, headers=api_headers, timeout=15)
+        # Минимальный, но четкий набор заголовков
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://t.meest-group.com/t/ru/us/'
+        }
+        
+        # Пробуем через GET (так как это get.php)
+        r = requests.get(url, params=params, headers=headers, timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
             if items:
                 last = items[-1]
-                dt_el = last.find('DateTimeAction')
-                dt = dt_el.text if dt_el is not None else ""
-                city_el = last.find('City')
-                city = city_el.text if city_el is not None else ""
-                msg_el = last.find('ActionMessages')
-                msg = msg_el.text if msg_el is not None else ""
+                dt = last.find('DateTimeAction').text if last.find('DateTimeAction') is not None else ""
+                city = last.find('City').text if last.find('City') is not None else ""
+                msg = last.find('ActionMessages').text if last.find('ActionMessages') is not None else ""
                 return f"🕒 {dt} | {city} | {msg}".strip()
-        else:
-            # Давай увидим, что именно не нравится серверу (может там Cloudflare?)
-            send_telegram(f"⚠️ <b>MEEST ({track})</b>\nHTTP {r.status_code}\nОтвет: <code>{r.text[:50]}</code>")
+        
+        # Если GET не прошел, пробуем тот же набор через POST (как в твоем cURL)
+        r_post = requests.post(url, params=params, headers=headers, timeout=15)
+        if r_post.status_code == 200 and "<items>" in r_post.text:
+            root = ET.fromstring(r_post.text)
+            items = root.findall(".//items")
+            if items:
+                last = items[-1]
+                dt = last.find('DateTimeAction').text if last.find('DateTimeAction') is not None else ""
+                city = last.find('City').text if last.find('City') is not None else ""
+                msg = last.find('ActionMessages').text if last.find('ActionMessages') is not None else ""
+                return f"🕒 {dt} | {city} | {msg}".strip()
+
+        # Если оба варианта выдали 400, значит это бан по IP
+        if r.status_code == 400:
+            return "Ожидает регистрации" # Не спамим ошибкой, просто ждем следующего цикла
             
     except Exception as e:
         print(f"Meest Error: {e}")
