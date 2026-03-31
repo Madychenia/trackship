@@ -45,7 +45,7 @@ def get_meest_status(track):
                 city = city_el.text if city_el is not None else ""
                 msg_el = last.find('ActionMessages_RU') if last.find('ActionMessages_RU') is not None else last.find('ActionMessages')
                 msg = msg_el.text if msg_el is not None else ""
-                return f"🕒 {dt} | {city} | {msg}".strip()
+                return f"🚚 {dt} | {city} | {msg}".strip()
         
         # План Б: HTML парсинг
         html_url = f"https://t.meest-group.com/int/ru/{track}"
@@ -54,7 +54,7 @@ def get_meest_status(track):
             dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', r_html.text)
             if dates:
                 last_dt = dates[-1]
-                return f"🕒 {last_dt} | Обновлено через HTML"
+                return f"🚚 {last_dt} | Обновлено через HTML"
                 
     except: pass
     return "Ожидает регистрации"
