@@ -5,7 +5,6 @@ import pytz
 import io
 import os
 import time
-import hashlib
 import requests
 import re
 
@@ -23,52 +22,42 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Пробуем через их API с твоими новыми параметрами из cURL
-        # Я использую старую соль, но если она не сработает - мы увидим это в логах
-        salt = "721f9793f5f239a47d69df922795267d"
-        chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        
-        # Ссылка в точности как в твоем успешном запросе
-        url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
-        
+        # Идем через публичную страницу, раз она нам открылась (HTML 200)
+        url = f"https://t.meest-group.com/int/ru/{track}"
         headers = {
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-            'x-requested-with': 'XMLHttpRequest',
-            'referer': 'https://t.meest-group.com/t/ru/us/',
-            'accept': 'application/xml, text/xml, */*; q=0.01'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
         }
-
-        r = requests.post(url, headers=headers, timeout=15)
         
-        if r.status_code == 200 and "<items>" in r.text:
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(r.text)
-            items = root.findall(".//items")
-            if items:
-                last = items[-1]
-                dt = last.find('DateTimeAction').text or ""
-                city = last.find('City').text or ""
-                msg = last.find('ActionMessages').text or ""
-                return f"🕒 {dt} | {city} | {msg}".strip()
+        r = requests.get(url, headers=headers, timeout=15)
         
-        # ЕСЛИ API НЕ ПУСТИЛ - ПЛАН Б: ПАРСИМ ЧИСТЫЙ HTML СТРАНИЦЫ
-        html_url = f"https://t.meest-group.com/int/ru/{track}"
-        r_html = requests.get(html_url, headers=headers, timeout=15)
-        
-        if r_html.status_code == 200:
-            # Ищем последнюю дату в формате ГГГГ-ММ-ДД
-            dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', r_html.text)
+        if r.status_code == 200:
+            html = r.text
+            # Ищем все даты (2026-03-20 19:55:48)
+            dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', html)
+            
             if dates:
                 last_dt = dates[-1]
-                return f"🕒 {last_dt} | Обновлено через HTML"
-
-        # ДИАГНОСТИКА: Если мы здесь, значит Мист нас реально забанил
-        # Отправляем тебе в Телеграм ЧТО ИМЕННО видит скрипт
-        debug_info = f"❌ <b>MEEST DEBUG ({track})</b>\nAPI: {r.status_code}\nHTML: {r_html.status_code}\nОтвет API: <code>{r.text[:50]}</code>"
-        send_telegram(debug_info)
-
+                # Берем кусок текста после этой даты
+                content_after = html.split(last_dt)[-1].split('</tr>')[0] # Ограничиваем одной строкой таблицы
+                
+                # Вычищаем все HTML теги и лишние пробелы
+                clean_text = re.sub('<[^<]+?>', '|', content_after)
+                parts = [p.strip() for p in clean_text.split('|') if p.strip() and len(p.strip()) > 1]
+                
+                # По логике сайта: [Страна, Город, К-во мест, Статус]
+                if len(parts) >= 4:
+                    city = parts[1]
+                    status_msg = parts[3]
+                    return f"🕒 {last_dt} | {city} | {status_msg}"
+                elif len(parts) >= 1:
+                    return f"🕒 {last_dt} | {parts[-1]}"
+            
+            # Если дат нет, возможно посылка еще не в системе
+            if "Результат поиска" in html and "не найдено" in html:
+                return "Ожидает регистрации"
+                
     except Exception as e:
-        send_telegram(f"⚠️ <b>Ошибка Meest:</b> <code>{str(e)[:100]}</code>")
+        print(f"Meest Error: {e}")
         
     return "Ожидает регистрации"
 
@@ -101,12 +90,17 @@ try:
         carrier = row['carrier']
         old_status = str(row['status']).strip()
         
-        new_status = get_meest_status(track) if "Мист" in str(carrier) else get_np_global_status(track) if "Новая" in str(carrier) else old_status
+        if "Мист" in str(carrier):
+            new_status = get_meest_status(track)
+        elif "Новая" in str(carrier):
+            new_status = get_np_global_status(track)
+        else:
+            new_status = old_status
 
         df.at[i, 'check_time'] = now
         
-        # Если статус реально изменился и это не заглушка ошибки
-        if new_status != old_status and "Ожидает регистрации" not in new_status and "Номер не найден" not in new_status:
+        # ЕСЛИ СТАТУС ИЗМЕНИЛСЯ (был "Ожидает регистрации", а стал реальным)
+        if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
             
@@ -117,7 +111,19 @@ try:
         
         time.sleep(2)
 
+    # Сохраняем обновленный файл
     repo.update_file(file.path, f"Pulse update {now}", df.to_csv(index=False), file.sha)
 
+    # Если было хоть одно обновление - шлем финальный отчет
+    if updated_any:
+        report = "📋 <b>АКТУАЛЬНЫЙ СПИСОК ПОСЫЛОК:</b>\n" + "—" * 20 + "\n"
+        for _, row in df.iterrows():
+            trk = row['track_number']
+            crr = "🚛" if "Новая" in str(row['carrier']) else "📦"
+            cmt = f" ({row['comment']})" if str(row['comment']) != "-" else ""
+            st_clean = str(row['status']).split('|')[-1].strip()
+            report += f"{crr} <code>{trk}</code>{cmt}\n└ {st_clean}\n\n"
+        send_telegram(report)
+
 except Exception as e:
-    send_telegram(f"⚠️ <b>Крит. ошибка:</b> {e}")
+    send_telegram(f"⚠️ <b>Крит. ошибка скрипта:</b> {e}")
