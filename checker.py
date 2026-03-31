@@ -5,6 +5,7 @@ import pytz
 import io
 import os
 import time
+import hashlib
 import requests
 import re
 
@@ -22,49 +23,52 @@ def send_telegram(message):
 
 def get_meest_status(track):
     try:
-        # Используем публичную страницу, которая у нас открывается (код 200)
-        url = f"https://t.meest-group.com/int/ru/{track}"
+        import xml.etree.ElementTree as ET
+        # ТВОЯ НОВАЯ СОЛЬ — ТОТ САМЫЙ ЗОЛОТОЙ КЛЮЧ
+        salt = '14e4e61ff1b43e7cdfe637371c188588'
+        chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
+        
+        # 1. ПРОБУЕМ ЧЕРЕЗ API (POST)
+        api_url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest'
         }
         
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code != 200:
-            return "Ожидает регистрации"
-
-        html = r.text
-        # Очищаем HTML от лишних пробелов и переносов для удобства поиска
-        content = re.sub(r'\s+', ' ', html)
-
-        # Ищем таблицу с результатами. Находим все даты в формате ГГГГ-ММ-ДД ЧЧ:ММ:СС
-        dates = re.findall(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', content)
+        r = requests.post(api_url, headers=headers, timeout=15)
         
-        if dates:
-            # Берем самую свежую дату (она обычно последняя в списке)
-            last_date = dates[-1]
-            
-            # Извлекаем кусок текста после этой даты до конца строки таблицы </tr>
-            # Верстка Meest: <tr> <td>Дата</td> <td>Страна</td> <td>Город</td> <td>Места</td> <td>Статус</td> </tr>
-            after_date = content.split(last_date)[-1].split('</tr>')[0]
-            
-            # Вытаскиваем всё, что находится внутри <td>...</td>
-            cells = re.findall(r'<td.*?>(.*?)</td>', after_date)
-            
-            if len(cells) >= 4:
-                city = re.sub('<[^<]+?>', '', cells[1]).strip() # Город
-                status = re.sub('<[^<]+?>', '', cells[3]).strip() # Детальное сообщение
-                return f"🕒 {last_date} | {city} | {status}"
-            elif len(cells) > 0:
-                # Если структура изменилась, берем последний найденный текст в ячейке
-                last_info = re.sub('<[^<]+?>', '', cells[-1]).strip()
-                return f"🕒 {last_date} | {last_info}"
+        if r.status_code == 200 and "<items>" in r.text:
+            root = ET.fromstring(r.text)
+            items = root.findall(".//items")
+            if items:
+                last = items[-1]
+                dt = last.find('DateTimeAction').text or ""
+                # Пробуем найти русские теги, если нет - обычные
+                city_el = last.find('City_RU') if last.find('City_RU') is not None else last.find('City')
+                city = city_el.text if city_el is not None else ""
+                msg_el = last.find('ActionMessages_RU') if last.find('ActionMessages_RU') is not None else last.find('ActionMessages')
+                msg = msg_el.text if msg_el is not None else ""
+                return f"🕒 {dt} | {city} | {msg}".strip()
 
-        if "не найдено" in html or "Result is empty" in html:
-            return "Ожидает регистрации"
-
+        # 2. ЕСЛИ API ЗАБЛОКИРОВАЛ (400), ИДЕМ НА ПУБЛИЧНЫЙ HTML (КОТОРЫЙ ДАВАЛ 200)
+        html_url = f"https://t.meest-group.com/int/ru/{track}"
+        r_html = requests.get(html_url, headers=headers, timeout=15)
+        
+        if r_html.status_code == 200:
+            html = r_html.text
+            dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', html)
+            if dates:
+                last_dt = dates[-1]
+                content_after = html.split(last_dt)[-1].split('</tr>')[0]
+                cells = re.findall(r'<td.*?>(.*?)</td>', content_after)
+                if len(cells) >= 4:
+                    city = re.sub('<[^<]+?>', '', cells[1]).strip()
+                    status = re.sub('<[^<]+?>', '', cells[3]).strip()
+                    return f"🕒 {last_dt} | {city} | {status}"
+                    
     except Exception as e:
-        print(f"Meest Parser Error: {e}")
-    
+        print(f"Meest Error: {e}")
+        
     return "Ожидает регистрации"
 
 def get_np_global_status(track):
@@ -73,13 +77,11 @@ def get_np_global_status(track):
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
         res = s.get("https://novaposhtaglobal.ua/track/", headers=headers, timeout=10)
         token = re.search(r'token["\']\s*:\s*["\']([^"\']+)["\']', res.text).group(1)
-        
         payload = {'token': token, 'num': track.strip(), 'lang': 'uk'}
         r = s.post("https://personal.novaposhtaglobal.ua/tracking.php", data=payload, headers=headers, timeout=15)
         data = r.json()
-        
         if 'historyStatus' in data and len(data['historyStatus']) > 0:
-            last = data['historyStatus'][0] 
+            last = data['historyStatus'][0]
             return f"🚚 {last.get('date', '')} | {last.get('status', '')}"
     except: pass
     return "Номер не найден"
@@ -92,6 +94,7 @@ try:
     
     now = datetime.now(kiev_tz).strftime("%d.%m %H:%M")
     updated_any = False
+    log_messages = []
 
     for i, row in df.iterrows():
         track = str(row['track_number']).strip()
@@ -107,7 +110,6 @@ try:
 
         df.at[i, 'check_time'] = now
         
-        # Обновляем только если статус действительно изменился и это не ошибка
         if new_status != old_status and new_status not in ["Номер не найден", "Ожидает регистрации"]:
             df.at[i, 'status'] = new_status
             df.at[i, 'last_change'] = now
@@ -119,18 +121,15 @@ try:
         
         time.sleep(2)
 
-    # Сохраняем результат в GitHub
+    # Сохраняем файл в любом случае
     repo.update_file(file.path, f"Pulse update {now}", df.to_csv(index=False), file.sha)
 
-    # Если были обновления — отправляем сводный отчет
+    # ОТЧЕТ В ТЕЛЕГРАМ (чтобы ты видел, что скрипт отработал)
+    status_text = "✅ Проверка завершена. Обновлений нет."
     if updated_any:
-        report = "📋 <b>АКТУАЛЬНЫЙ СПИСОК ПОСЫЛОК:</b>\n" + "—" * 20 + "\n"
-        for _, row in df.iterrows():
-            trk = row['track_number']
-            cmt = f" ({row['comment']})" if str(row['comment']) != "-" else ""
-            st_clean = str(row['status']).split('|')[-1].strip()
-            report += f"📦 <code>{trk}</code>{cmt}\n└ {st_clean}\n\n"
-        send_telegram(report)
+        status_text = "✅ Проверка завершена. Статусы обновлены!"
+    
+    send_telegram(f"{status_text}\n🕒 Время: {now}")
 
 except Exception as e:
-    send_telegram(f"⚠️ <b>Крит. ошибка скрипта:</b>\n<code>{e}</code>")
+    send_telegram(f"🆘 <b>КРИТИЧЕСКАЯ ОШИБКА:</b>\n<code>{e}</code>")
