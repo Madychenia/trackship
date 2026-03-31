@@ -8,7 +8,6 @@ import time
 import hashlib
 import requests
 import re
-import random
 
 kiev_tz = pytz.timezone('Europe/Kiev')
 G_TOKEN = os.getenv("G_TOKEN")
@@ -28,24 +27,28 @@ def get_meest_status(track):
         
         salt = "721f9793f5f239a47d69df922795267d"
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
-        url = f"https://t.meest-group.com/get.php?what=tracking&test&number={track}&lang=uk&ext_track=&chk={chk}"
         
-        # Генерируем случайный IP для обхода блокировки
-        ip = f"{random.randint(46, 190)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        # Обновленный URL с параметром referer, как в твоем cURL
+        url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
         
-        # Максимальная маскировка под обычный браузер
+        # Полная маскировка под твой браузер из cURL-запроса
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36', 
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/xml, text/xml, */*; q=0.01',
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'X-Forwarded-For': ip,
-            'X-Real-IP': ip,
-            'Client-IP': ip
+            'accept': 'application/xml, text/xml, */*; q=0.01',
+            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'content-length': '0',
+            'origin': 'https://t.meest-group.com',
+            'referer': 'https://t.meest-group.com/t/ru/us/',
+            'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest'
         }
         
-        # Делаем POST-запрос с пустой датой, чтобы сымитировать отправку формы
-        r = requests.post(url, headers=headers, data="", timeout=15)
+        r = requests.post(url, headers=headers, timeout=15)
         
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
@@ -67,7 +70,6 @@ def get_meest_status(track):
             send_telegram(f"⚠️ <b>ОШИБКА СЕРВЕРА MEEST ({track}):</b>\nКод: {r.status_code}\nОтвет: <code>{r.text[:100]}</code>")
             
     except Exception as e:
-        send_telegram(f"⚠️ <b>ОШИБКА КОДА MEEST ({track}):</b>\n<code>{e}</code>")
         pass
         
     return "Ожидает регистрации"
