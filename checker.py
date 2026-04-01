@@ -24,41 +24,57 @@ def send_telegram(message):
 def get_meest_status(track):
     try:
         import xml.etree.ElementTree as ET
-        salt = '14e4e61ff1b43e7cdfe637371c188588'
+        import hashlib
+        import requests
+        import re
+        
+        s = requests.Session()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
+        }
+        
+        # 1. АВТОМАТИЧЕСКИЙ УГОН СОЛИ
+        salt = 'c6099d0ffe015aa767ce1962edf55670' # Твоя новая как запасная
+        try:
+            main_page = s.get("https://us.meest.com/ru/parcel-track", headers=headers, timeout=10)
+            salt_match = re.search(r"var\s+salt\s*=\s*['\"]([^'\"]+)['\"]", main_page.text)
+            if salt_match:
+                salt = salt_match.group(1)
+        except: pass
+        
+        # 2. ФОРМИРУЕМ ЗАПРОС СО СВЕЖЕЙ СОЛЬЮ
         chk = hashlib.md5(f"{salt}{track}{salt}".encode()).hexdigest()
         
         api_url = f"https://t.meest-group.com/get.php?what=tracking&number={track}&lang=ru&ext_track=&chk={chk}&referer=https://us.meest.com/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+        api_headers = {
+            'User-Agent': headers['User-Agent'],
             'X-Requested-With': 'XMLHttpRequest'
         }
         
-        r = requests.post(api_url, headers=headers, timeout=15)
+        r = s.post(api_url, headers=api_headers, timeout=15)
         
+        # 3. ПАРСИМ ОТВЕТ (игнорируя HTML-ссылки внутри текста)
         if r.status_code == 200 and "<items>" in r.text:
             root = ET.fromstring(r.text)
             items = root.findall(".//items")
             if items:
                 last = items[-1]
                 dt = last.find('DateTimeAction').text or ""
-                city_el = last.find('City_RU') if last.find('City_RU') is not None else last.find('City')
-                city = city_el.text if city_el is not None else ""
-                msg_el = last.find('ActionMessages_RU') if last.find('ActionMessages_RU') is not None else last.find('ActionMessages')
-                msg = msg_el.text if msg_el is not None else ""
-                return f"🚚 {dt} | {city} | {msg}".strip()
-        
-        # План Б: HTML парсинг
-        html_url = f"https://t.meest-group.com/int/ru/{track}"
-        r_html = requests.get(html_url, headers=headers, timeout=15)
-        if r_html.status_code == 200:
-            dates = re.findall(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})', r_html.text)
-            if dates:
-                last_dt = dates[-1]
-                return f"🚚 {last_dt} | Обновлено через HTML"
                 
-    except: pass
+                city_el = last.find('City_RU') if last.find('City_RU') is not None else last.find('City')
+                city = "".join(city_el.itertext()).strip() if city_el is not None else ""
+                
+                msg_el = last.find('ActionMessages_RU') if last.find('ActionMessages_RU') is not None else last.find('ActionMessages')
+                msg = "".join(msg_el.itertext()).strip() if msg_el is not None else ""
+                msg = re.sub(r'\s+', ' ', msg)
+                
+                return f"🕒 {dt} | {city} | {msg}".strip()
+                
+    except Exception as e:
+        pass
+        
     return "Ожидает регистрации"
-
+    
 def get_np_status(track):
     try:
         url = "https://personal.novaposhtaglobal.ua/tracking.php"
